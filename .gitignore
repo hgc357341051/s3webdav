@@ -1,0 +1,14 @@
+# Build output
+build/
+build_test/
+
+# Runtime data (db + storage)
+.cloodsys3/
+
+# IDE
+.idea/
+*.exe
+# OS
+.DS_Store
+Thumbs.db
+/.claude/
