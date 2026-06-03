@@ -58,7 +58,7 @@ func (fs *FileSystem) bucketBasePath(bucket string) string {
 	return fs.RootDir
 }
 
-const safeExt = ".cloodsys3ext"
+const safeExt = ".lsext"
 
 // safePath ensures that the resolved path stays within the base directory,
 // preventing path traversal attacks.

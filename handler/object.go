@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -93,6 +95,11 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	contentType := r.Header.Get("Content-Type")
+	// 当客户端未指定 Content-Type 时，根据文件扩展名推断 MIME 类型
+	if contentType == "" {
+		contentType = mime.TypeByExtension(filepath.Ext(key))
+	}
+	// 如果扩展名也无法推断，使用通用二进制类型
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
@@ -148,25 +155,65 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// 自动缩放：如果启用了自动缩放且文件是大图片，提交异步缩放任务
+	if h.ImageProcessor != nil && versionID == "" {
+		// 仅对非版本化对象触发自动缩放（版本化对象不替换）
+		if ShouldAutoResize(&h.Config.ImageResize, contentType, size) {
+			task := BuildAutoResizeTask(&h.Config.ImageResize, bucketName, key, contentType, size)
+			if task != nil {
+				h.ImageProcessor.Submit(*task) // 非阻塞提交，队列满则丢弃
+			}
+		}
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
 // GetObject handles GET /<bucket>/<key>
 func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
-	cred, ok := h.authenticateRequest(w, r)
-	if !ok {
-		return
-	}
-
 	bucketName, key := getBucketAndKey(r)
 	if key == "" {
 		s3err.WriteError(w, r, s3err.ErrNoSuchKey)
 		return
 	}
 
-	bucket, ok := h.checkBucketAccess(w, r, cred, bucketName)
-	if !ok {
-		return
+	// 尝试公共读取：当请求无签名且 bucket 开启了 PublicRead 时，允许直接访问
+	var cred *db.BucketCredential
+	var bucket *db.Bucket
+	authHeader := r.Header.Get("Authorization")
+	hasPresigned := r.URL.Query().Get("X-Amz-Algorithm") != ""
+
+	if authHeader == "" && !hasPresigned {
+		// 无签名请求，检查 bucket 是否开启公共读取
+		b, err := h.DB.GetBucket(bucketName)
+		if err != nil {
+			h.Logger.Error("db error", "error", err)
+			s3err.WriteError(w, r, s3err.ErrInternalError)
+			return
+		}
+		if b == nil {
+			s3err.WriteError(w, r, s3err.ErrNoSuchBucket)
+			return
+		}
+		if !b.PublicRead {
+			// bucket 未开启公共读取，需要认证
+			s3err.WriteError(w, r, s3err.ErrAccessDenied)
+			return
+		}
+		// 公共读取模式，不需要凭证
+		bucket = b
+	} else {
+		// 有签名请求，走正常认证流程
+		var ok bool
+		cred, ok = h.authenticateRequest(w, r)
+		if !ok {
+			return
+		}
+		var accessOk bool
+		bucket, accessOk = h.checkBucketAccess(w, r, cred, bucketName)
+		if !accessOk {
+			return
+		}
 	}
 
 	// Check for specific version request
@@ -224,7 +271,12 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("ETag", meta.ETag)
 	w.Header().Set("Last-Modified", meta.LastModified.UTC().Format(http.TimeFormat))
 	w.Header().Set("Accept-Ranges", "bytes")
-	w.Header().Set("Content-Disposition", "attachment")
+	// 根据文件类型决定 Content-Disposition：图片和文本内联显示，其他类型作为附件下载
+	if isInlineContentType(meta.ContentType) {
+		w.Header().Set("Content-Disposition", "inline")
+	} else {
+		w.Header().Set("Content-Disposition", "attachment")
+	}
 	if meta.VersionID != "" {
 		w.Header().Set("x-amz-version-id", meta.VersionID)
 	}
@@ -237,6 +289,29 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 图片缩放处理：检查是否有缩放参数（w/h/q/m），且内容类型为可缩放图片
+	// 初始化并发缩放信号量（仅首次生效）
+	initResizeSemaphore(h.Config.ImageResize.MaxConcurrent)
+	resizeParams := parseResizeParams(r, &h.Config.ImageResize)
+	if resizeParams != nil && isResizableContentType(meta.ContentType) {
+		// 读取原始图片数据并进行缩放处理，传入安全限制配置
+		resizedData, resizedContentType, err := resizeImage(reader, meta.ContentType, resizeParams, &h.Config.ImageResize)
+		if err != nil {
+			// 缩放失败时记录日志，回退到返回原始图片
+			h.Logger.Warn("image resize failed, serving original", "error", err, "key", key)
+			w.Header().Set("Content-Length", strconv.FormatInt(meta.Size, 10))
+			w.WriteHeader(http.StatusOK)
+			io.Copy(w, reader)
+			return
+		}
+		// 缩放成功，返回缩放后的图片
+		w.Header().Set("Content-Type", resizedContentType)               // 更新为实际输出的内容类型
+		w.Header().Set("Content-Length", strconv.Itoa(len(resizedData))) // 更新为缩放后的文件大小
+		w.WriteHeader(http.StatusOK)
+		w.Write(resizedData)
+		return
+	}
+
 	w.Header().Set("Content-Length", strconv.FormatInt(meta.Size, 10))
 	w.WriteHeader(http.StatusOK)
 	io.Copy(w, reader)
@@ -244,20 +319,47 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 
 // HeadObject handles HEAD /<bucket>/<key>
 func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
-	cred, ok := h.authenticateRequest(w, r)
-	if !ok {
-		return
-	}
-
 	bucketName, key := getBucketAndKey(r)
 	if key == "" {
 		s3err.WriteError(w, r, s3err.ErrNoSuchKey)
 		return
 	}
 
-	bucket, ok := h.checkBucketAccess(w, r, cred, bucketName)
-	if !ok {
-		return
+	// 尝试公共读取：当请求无签名且 bucket 开启了 PublicRead 时，允许直接访问
+	var bucket *db.Bucket
+	authHeader := r.Header.Get("Authorization")
+	hasPresigned := r.URL.Query().Get("X-Amz-Algorithm") != ""
+
+	if authHeader == "" && !hasPresigned {
+		// 无签名请求，检查 bucket 是否开启公共读取
+		b, err := h.DB.GetBucket(bucketName)
+		if err != nil {
+			h.Logger.Error("db error", "error", err)
+			s3err.WriteError(w, r, s3err.ErrInternalError)
+			return
+		}
+		if b == nil {
+			s3err.WriteError(w, r, s3err.ErrNoSuchBucket)
+			return
+		}
+		if !b.PublicRead {
+			// bucket 未开启公共读取，需要认证
+			s3err.WriteError(w, r, s3err.ErrAccessDenied)
+			return
+		}
+		// 公共读取模式，不需要凭证
+		bucket = b
+	} else {
+		// 有签名请求，走正常认证流程
+		cred, ok := h.authenticateRequest(w, r)
+		if !ok {
+			return
+		}
+		var accessOk bool
+		bucket, accessOk = h.checkBucketAccess(w, r, cred, bucketName)
+		if !accessOk {
+			return
+		}
 	}
 
 	requestedVersion := r.URL.Query().Get("versionId")
@@ -692,4 +794,36 @@ func (h *Handler) copyObject(w http.ResponseWriter, r *http.Request, cred *db.Bu
 		ETag:         etag,
 	}
 	h.writeXML(w, http.StatusOK, result)
+}
+
+// isInlineContentType 判断 Content-Type 是否适合浏览器内联显示（图片、文本、PDF、音视频等）
+func isInlineContentType(ct string) bool {
+	if ct == "" {
+		return false
+	}
+	// 图片类型：浏览器可以直接渲染显示
+	if strings.HasPrefix(ct, "image/") {
+		return true
+	}
+	// 文本类型：浏览器可以直接显示内容
+	if strings.HasPrefix(ct, "text/") {
+		return true
+	}
+	// PDF 文档：浏览器内置 PDF 查看器可以直接显示
+	if ct == "application/pdf" {
+		return true
+	}
+	// 音频和视频类型：浏览器可以内嵌播放
+	if strings.HasPrefix(ct, "audio/") || strings.HasPrefix(ct, "video/") {
+		return true
+	}
+	// JSON/XML 等常见文本格式：浏览器可以友好显示
+	if ct == "application/json" || ct == "application/xml" {
+		return true
+	}
+	// JavaScript、CSS 等 Web 资源类型
+	if ct == "application/javascript" || ct == "application/x-javascript" {
+		return true
+	}
+	return false
 }

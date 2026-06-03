@@ -7,12 +7,28 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	Database DatabaseConfig `yaml:"database"`
-	Storage  StorageConfig  `yaml:"storage"`
-	Logging  LoggingConfig  `yaml:"logging"`
-	Admin    AdminConfig    `yaml:"admin"`
-	WebDAV   WebDAVConfig   `yaml:"webdav"`
+	Server      ServerConfig      `yaml:"server"`
+	Database    DatabaseConfig    `yaml:"database"`
+	Storage     StorageConfig     `yaml:"storage"`
+	Logging     LoggingConfig     `yaml:"logging"`
+	Admin       AdminConfig       `yaml:"admin"`
+	WebDAV      WebDAVConfig      `yaml:"webdav"`
+	ImageResize ImageResizeConfig `yaml:"image_resize"` // 图片缩放配置
+}
+
+// ImageResizeConfig 图片缩放安全限制配置
+type ImageResizeConfig struct {
+	MaxWidth      int `yaml:"max_width"`      // 输出图片最大宽度（像素），默认 4096
+	MaxHeight     int `yaml:"max_height"`     // 输出图片最大高度（像素），默认 4096
+	MaxUpscale    int `yaml:"max_upscale"`    // 最大放大倍数（相对原图），默认 2（即最多放大到原图 2 倍）
+	MaxConcurrent int `yaml:"max_concurrent"` // 最大并发缩放数，默认 4（防止内存爆满）
+
+	// 自动缩放配置：上传大图时自动异步缩放替换原图
+	AutoResizeEnabled bool   `yaml:"auto_resize_enabled"`  // 是否启用上传自动缩放，默认 false
+	AutoResizeMinSize string `yaml:"auto_resize_min_size"` // 触发自动缩放的最小文件大小，默认 "5MB"
+	AutoResizeTargetW int    `yaml:"auto_resize_target_w"` // 自动缩放目标宽度（0=不限制），默认 1920
+	AutoResizeTargetH int    `yaml:"auto_resize_target_h"` // 自动缩放目标高度（0=不限制），默认 0（按宽度等比例）
+	AutoResizeQuality int    `yaml:"auto_resize_quality"`  // 自动缩放 JPEG 质量，默认 85
 }
 
 type WebDAVConfig struct {
@@ -28,10 +44,10 @@ type AdminConfig struct {
 }
 
 type ServerConfig struct {
-	Listen      string   `yaml:"listen"`
-	Region      string   `yaml:"region"`
+	Listen      string    `yaml:"listen"`
+	Region      string    `yaml:"region"`
 	TLS         TLSConfig `yaml:"tls"`
-	CORSOrigins []string `yaml:"cors_origins"`
+	CORSOrigins []string  `yaml:"cors_origins"`
 }
 
 type TLSConfig struct {
@@ -49,9 +65,9 @@ type DatabaseConfig struct {
 }
 
 type StorageConfig struct {
-	RootDir            string `yaml:"root_dir"`
-	MultipartMaxAge    string `yaml:"multipart_max_age"`    // Duration string, e.g. "24h"
-	LifecycleInterval  string `yaml:"lifecycle_interval"`   // Duration string, e.g. "1h"
+	RootDir           string `yaml:"root_dir"`
+	MultipartMaxAge   string `yaml:"multipart_max_age"`  // Duration string, e.g. "24h"
+	LifecycleInterval string `yaml:"lifecycle_interval"` // Duration string, e.g. "1h"
 }
 
 type LoggingConfig struct {
@@ -63,8 +79,9 @@ type LoggingConfig struct {
 func Default() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Listen: ":9000",
-			Region: "us-east-1",
+			Listen:      ":9000",
+			Region:      "us-east-1",
+			CORSOrigins: []string{"*"}, // 默认允许所有来源，方便本地测试
 		},
 		Database: DatabaseConfig{
 			Path:        "./.cloodsys3/cloodsys3.db",
@@ -81,6 +98,17 @@ func Default() *Config {
 			Level:  "info",
 			Format: "text",
 		},
+		ImageResize: ImageResizeConfig{
+			MaxWidth:          4096,  // 输出图片最大宽度 4096px
+			MaxHeight:         4096,  // 输出图片最大高度 4096px
+			MaxUpscale:        2,     // 最多放大到原图 2 倍
+			MaxConcurrent:     4,     // 最多 4 个并发缩放
+			AutoResizeEnabled: false, // 默认关闭自动缩放
+			AutoResizeMinSize: "5MB", // 5MB 以上触发
+			AutoResizeTargetW: 1920,  // 目标宽度 1920px
+			AutoResizeTargetH: 0,     // 高度按比例自动计算
+			AutoResizeQuality: 85,    // JPEG 质量 85
+		},
 	}
 }
 
@@ -91,6 +119,10 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Server.Region == "" {
 		cfg.Server.Region = d.Server.Region
+	}
+	// CORSOrigins 为空时设置默认值，允许所有来源
+	if len(cfg.Server.CORSOrigins) == 0 {
+		cfg.Server.CORSOrigins = d.Server.CORSOrigins
 	}
 	if cfg.Database.Path == "" {
 		cfg.Database.Path = d.Database.Path
@@ -130,6 +162,29 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.WebDAV.Prefix == "" {
 		cfg.WebDAV.Prefix = "/"
+	}
+	// 图片缩放安全限制默认值
+	if cfg.ImageResize.MaxWidth <= 0 {
+		cfg.ImageResize.MaxWidth = d.ImageResize.MaxWidth
+	}
+	if cfg.ImageResize.MaxHeight <= 0 {
+		cfg.ImageResize.MaxHeight = d.ImageResize.MaxHeight
+	}
+	if cfg.ImageResize.MaxUpscale <= 0 {
+		cfg.ImageResize.MaxUpscale = d.ImageResize.MaxUpscale
+	}
+	if cfg.ImageResize.MaxConcurrent <= 0 {
+		cfg.ImageResize.MaxConcurrent = d.ImageResize.MaxConcurrent
+	}
+	// 自动缩放默认值
+	if cfg.ImageResize.AutoResizeMinSize == "" {
+		cfg.ImageResize.AutoResizeMinSize = d.ImageResize.AutoResizeMinSize
+	}
+	if cfg.ImageResize.AutoResizeTargetW <= 0 {
+		cfg.ImageResize.AutoResizeTargetW = d.ImageResize.AutoResizeTargetW
+	}
+	if cfg.ImageResize.AutoResizeQuality <= 0 {
+		cfg.ImageResize.AutoResizeQuality = d.ImageResize.AutoResizeQuality
 	}
 }
 

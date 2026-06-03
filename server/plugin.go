@@ -7,14 +7,16 @@ import (
 
 	"github.com/onaonbir/Cloodsy-S3/config"
 	"github.com/onaonbir/Cloodsy-S3/db"
+	"github.com/onaonbir/Cloodsy-S3/handler"
 	"github.com/onaonbir/Cloodsy-S3/storage"
 )
 
 type PluginDeps struct {
-	DB     *db.DB
-	Store  *storage.FileSystem
-	Config *config.Config
-	Logger *slog.Logger
+	DB      *db.DB
+	Store   *storage.FileSystem
+	Config  *config.Config
+	Logger  *slog.Logger
+	Handler *handler.Handler // S3 handler，用于获取 ImageProcessor 等
 }
 
 type ServicePlugin interface {

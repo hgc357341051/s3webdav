@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"os"
 	"path"
@@ -20,9 +21,17 @@ import (
 )
 
 type S3FileSystem struct {
-	db      *db.DB
-	storage *storage.FileSystem
-	logger  *slog.Logger
+	db             *db.DB
+	storage        *storage.FileSystem
+	logger         *slog.Logger
+	autoResizeHook AutoResizeHook // 自动缩放钩子（可选）
+}
+
+// AutoResizeHook 自动缩放钩子接口，由 handler.ImageProcessor 实现
+// WebDAV 上传文件后通过此接口触发自动缩放，避免循环依赖
+type AutoResizeHook interface {
+	// SubmitAutoResizeTask 提交自动缩放任务（非阻塞）
+	SubmitAutoResizeTask(bucketName, key, contentType string, size int64)
 }
 
 func NewS3FileSystem(database *db.DB, store *storage.FileSystem, logger *slog.Logger) *S3FileSystem {
@@ -31,6 +40,11 @@ func NewS3FileSystem(database *db.DB, store *storage.FileSystem, logger *slog.Lo
 		storage: store,
 		logger:  logger,
 	}
+}
+
+// SetAutoResizeHook 设置自动缩放钩子
+func (fs *S3FileSystem) SetAutoResizeHook(hook AutoResizeHook) {
+	fs.autoResizeHook = hook
 }
 
 func parseWebDAVPath(p string) (bucket, key string) {
@@ -582,12 +596,20 @@ func (f *s3File) Close() error {
 		}
 		writeMeta()
 
+		// 当 Content-Type 为通用二进制类型时，根据文件扩展名推断更精确的 MIME 类型
+		contentType := f.contentType
+		if contentType == "" || contentType == "application/octet-stream" {
+			if guessed := mime.TypeByExtension(filepath.Ext(f.key)); guessed != "" {
+				contentType = guessed
+			}
+		}
+
 		meta := &db.ObjectMeta{
 			BucketID:     f.bucketID,
 			Key:          f.key,
 			Size:         size,
 			ETag:         etag,
-			ContentType:  f.contentType,
+			ContentType:  contentType,
 			LastModified: time.Now(),
 			Metadata:     metadataStr,
 			IsLatest:     true,
@@ -596,6 +618,11 @@ func (f *s3File) Close() error {
 			return fmt.Errorf("close: put object meta: %w", err)
 		}
 		f.isNew = false
+
+		// 自动缩放：如果设置了自动缩放钩子且文件是大图片，触发异步缩放
+		if f.fs.autoResizeHook != nil {
+			f.fs.autoResizeHook.SubmitAutoResizeTask(f.bucket, f.key, contentType, size)
+		}
 	}
 	return nil
 }
@@ -778,8 +805,13 @@ func (h *BasicAuthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.handler.ServeHTTP(w, r)
 }
 
-func NewHandler(database *db.DB, store *storage.FileSystem, logger *slog.Logger, prefix string) http.Handler {
+func NewHandler(database *db.DB, store *storage.FileSystem, logger *slog.Logger, prefix string, autoResizeHook ...AutoResizeHook) http.Handler {
 	s3fs := NewS3FileSystem(database, store, logger)
+
+	// 如果传入了自动缩放钩子，设置到文件系统
+	if len(autoResizeHook) > 0 && autoResizeHook[0] != nil {
+		s3fs.SetAutoResizeHook(autoResizeHook[0])
+	}
 
 	davHandler := &webdav.Handler{
 		Prefix:     prefix,

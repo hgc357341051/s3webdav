@@ -1,0 +1,1544 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AWS S3 通用测试工具</title>
+    <style>
+        /* 全局样式重置 */
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f2f5; /* 页面背景色 */
+            color: #333; /* 默认文字颜色 */
+            line-height: 1.6; /* 行高 */
+        }
+        /* 顶部标题栏 */
+        .header {
+            background: linear-gradient(135deg, #232f3e, #ff9900); /* AWS 风格渐变 */
+            color: #fff;
+            padding: 16px 24px;
+            display: flex; /* 弹性布局 */
+            align-items: center; /* 垂直居中 */
+            justify-content: space-between; /* 两端对齐 */
+        }
+        .header h1 { font-size: 20px; font-weight: 600; }
+        .header .badge {
+            background: rgba(255,255,255,0.2); /* 半透明白色背景 */
+            padding: 4px 12px;
+            border-radius: 12px; /* 圆角 */
+            font-size: 12px;
+        }
+        /* 主容器布局 */
+        .container {
+            max-width: 1400px; /* 最大宽度 */
+            margin: 0 auto; /* 水平居中 */
+            padding: 16px;
+            display: grid; /* 网格布局 */
+            grid-template-columns: 320px 1fr; /* 左侧配置 + 右侧操作 */
+            gap: 16px; /* 间距 */
+        }
+        /* 面板通用样式 */
+        .panel {
+            background: #fff; border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden;
+        }
+        .panel-title {
+            background: #fafafa; padding: 12px 16px; font-weight: 600;
+            font-size: 14px; border-bottom: 1px solid #e8e8e8;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .panel-body { padding: 16px; }
+        /* 表单控件 */
+        .form-group { margin-bottom: 12px; }
+        .form-group label {
+            display: block; font-size: 12px; font-weight: 600; color: #666;
+            margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%; padding: 8px 12px; border: 1px solid #d9d9d9;
+            border-radius: 4px; font-size: 13px; transition: border-color 0.2s;
+        }
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+            outline: none; border-color: #ff9900; box-shadow: 0 0 0 2px rgba(255,153,0,0.2);
+        }
+        .form-group textarea { resize: vertical; min-height: 60px; font-family: monospace; }
+        /* 按钮 */
+        .btn {
+            padding: 8px 16px; border: none; border-radius: 4px; font-size: 13px;
+            font-weight: 500; cursor: pointer; transition: all 0.2s;
+            display: inline-flex; align-items: center; gap: 6px;
+        }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary { background: #ff9900; color: #fff; }
+        .btn-primary:hover:not(:disabled) { background: #ec7211; }
+        .btn-danger { background: #d13212; color: #fff; }
+        .btn-danger:hover:not(:disabled) { background: #b5190b; }
+        .btn-secondary { background: #fff; color: #333; border: 1px solid #d9d9d9; }
+        .btn-secondary:hover:not(:disabled) { background: #fafafa; }
+        .btn-sm { padding: 4px 10px; font-size: 12px; }
+        .btn-block { width: 100%; justify-content: center; }
+        /* 操作按钮网格 */
+        .action-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 8px; margin-bottom: 16px;
+        }
+        /* 标签页 */
+        .tabs {
+            display: flex; border-bottom: 2px solid #e8e8e8;
+            margin-bottom: 16px; flex-wrap: wrap;
+        }
+        .tab {
+            padding: 8px 16px; font-size: 13px; font-weight: 500; color: #666;
+            cursor: pointer; border-bottom: 2px solid transparent;
+            margin-bottom: -2px; transition: all 0.2s; white-space: nowrap;
+        }
+        .tab:hover { color: #ff9900; }
+        .tab.active { color: #ff9900; border-bottom-color: #ff9900; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        /* 响应结果区域 */
+        .response-area {
+            background: #1e1e1e; color: #d4d4d4; border-radius: 6px; padding: 16px;
+            font-family: 'Consolas', 'Monaco', monospace; font-size: 12px;
+            max-height: 500px; overflow: auto; white-space: pre-wrap;
+            word-break: break-all; line-height: 1.5;
+        }
+        .response-area .ok { color: #4caf50; }
+        .response-area .err { color: #f44336; }
+        .response-area .info { color: #64b5f6; }
+        .response-area .warn { color: #ff9800; }
+        /* 日志区域 */
+        .log-area {
+            background: #fafafa; border: 1px solid #e8e8e8; border-radius: 4px;
+            padding: 12px; font-family: monospace; font-size: 11px;
+            max-height: 200px; overflow: auto; margin-top: 12px;
+        }
+        .log-entry { padding: 2px 0; border-bottom: 1px solid #f0f0f0; }
+        .log-time { color: #999; }
+        .log-ok { color: #4caf50; }
+        .log-err { color: #f44336; }
+        /* 状态指示器 */
+        .status-dot {
+            display: inline-block; width: 8px; height: 8px;
+            border-radius: 50%; margin-right: 6px;
+        }
+        .status-dot.connected { background: #4caf50; }
+        .status-dot.disconnected { background: #f44336; }
+        .status-dot.testing { background: #ff9800; animation: pulse 1s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        /* 文件上传区域 */
+        .upload-zone {
+            border: 2px dashed #d9d9d9; border-radius: 8px; padding: 24px;
+            text-align: center; cursor: pointer; transition: all 0.2s; color: #999;
+        }
+        .upload-zone:hover, .upload-zone.dragover {
+            border-color: #ff9900; color: #ff9900; background: #fffbe6;
+        }
+        .upload-zone input { display: none; }
+        /* 进度条 */
+        .progress-bar {
+            height: 4px; background: #e8e8e8; border-radius: 2px;
+            overflow: hidden; margin-top: 8px;
+        }
+        .progress-bar .fill {
+            height: 100%; background: #ff9900; transition: width 0.3s; border-radius: 2px;
+        }
+        /* 连接状态栏 */
+        .conn-status {
+            padding: 8px 12px; border-radius: 4px; font-size: 12px;
+            margin-bottom: 12px; display: flex; align-items: center;
+        }
+        .conn-status.ok { background: #e8f5e9; color: #2e7d32; }
+        .conn-status.fail { background: #ffebee; color: #c62828; }
+        .conn-status.idle { background: #f5f5f5; color: #666; }
+        /* 响应式 */
+        @media (max-width: 900px) { .container { grid-template-columns: 1fr; } }
+        /* 文件浏览表格行悬停 */
+        #browserTableBody tr:hover { background: #f5f5f5; }
+        #browserTableBody tr { border-bottom: 1px solid #f0f0f0; cursor: pointer; }
+        #browserTableBody td { padding: 8px; }
+        /* 面包屑导航 */
+        .breadcrumb-item { color: #ff9900; cursor: pointer; }
+        .breadcrumb-item:hover { text-decoration: underline; }
+        .breadcrumb-sep { color: #999; margin: 0 4px; }
+        /* 预览图片 */
+        .preview-img { max-width: 100%; max-height: 500px; display: block; margin: 0 auto; }
+        /* 预览文本 */
+        .preview-text { background: #1e1e1e; color: #d4d4d4; padding: 16px; font-family: monospace; font-size: 12px; max-height: 400px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+        /* 预览音频/视频 */
+        .preview-audio, .preview-video { width: 100%; max-width: 600px; display: block; margin: 0 auto; }
+        /* 文件图标 */
+        .file-icon { display: inline-block; width: 16px; height: 16px; margin-right: 6px; vertical-align: middle; }
+        .dir-icon { color: #ff9900; }
+        .file-icon-img { color: #4caf50; }
+        .file-icon-txt { color: #2196f3; }
+        .file-icon-other { color: #999; }
+    </style>
+</head>
+<body>
+<!-- 顶部标题栏 -->
+<div class="header">
+    <h1>S3 通用测试工具</h1>
+    <span class="badge">AWS SigV4 签名</span>
+</div>
+<!-- 主容器 -->
+<div class="container">
+    <!-- 左侧：连接配置面板 -->
+    <div>
+        <div class="panel">
+            <div class="panel-title">
+                <span class="status-dot disconnected" id="statusDot"></span> 连接配置
+            </div>
+            <div class="panel-body">
+                <div class="conn-status idle" id="connStatus">尚未测试连接</div>
+                <div class="form-group">
+                    <label>Endpoint</label>
+                    <input type="text" id="endpoint" value="http://localhost:9000" placeholder="http://localhost:9000">
+                </div>
+                <div class="form-group">
+                    <label>Region</label>
+                    <input type="text" id="region" value="us-east-1" placeholder="us-east-1">
+                </div>
+                <div class="form-group">
+                    <label>Access Key ID</label>
+                    <input type="text" id="accessKey" placeholder="AKIA...">
+                </div>
+                <div class="form-group">
+                    <label>Secret Access Key</label>
+                    <input type="password" id="secretKey" placeholder="输入密钥...">
+                </div>
+                <button class="btn btn-primary btn-block" onclick="testConnection()" id="testBtn">测试连接</button>
+                <div style="margin-top:12px; display:flex; gap:8px;">
+                    <button class="btn btn-secondary btn-sm" onclick="saveConfig()" style="flex:1">保存配置</button>
+                    <button class="btn btn-secondary btn-sm" onclick="loadConfig()" style="flex:1">加载配置</button>
+                </div>
+                <div class="log-area" id="logArea">
+                    <div class="log-entry"><span class="log-time">[--:--:--]</span> 等待操作...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- 右侧：操作区域 -->
+    <div>
+        <div class="panel">
+            <div class="panel-title">S3 API 操作</div>
+            <div class="panel-body">
+                <!-- 标签页导航 -->
+                <div class="tabs">
+                    <div class="tab active" onclick="switchTab('bucket')">Bucket 操作</div>
+                    <div class="tab" onclick="switchTab('object')">Object 操作</div>
+                    <div class="tab" onclick="switchTab('browser')">文件浏览</div>
+                    <div class="tab" onclick="switchTab('multipart')">Multipart 上传</div>
+                    <div class="tab" onclick="switchTab('batch')">批量操作</div>
+                    <div class="tab" onclick="switchTab('presigned')">预签名 URL</div>
+                    <div class="tab" onclick="switchTab('raw')">原始请求</div>
+                </div>
+                <!-- Bucket 操作 -->
+                <div class="tab-content active" id="tab-bucket">
+                    <div class="form-group">
+                        <label>Bucket 名称</label>
+                        <input type="text" id="bucketName" placeholder="my-bucket">
+                    </div>
+                    <div class="action-grid">
+                        <button class="btn btn-primary" onclick="listBuckets()">ListBuckets</button>
+                        <button class="btn btn-primary" onclick="createBucket()">CreateBucket</button>
+                        <button class="btn btn-primary" onclick="headBucket()">HeadBucket</button>
+                        <button class="btn btn-danger" onclick="deleteBucket()">DeleteBucket</button>
+                        <button class="btn btn-secondary" onclick="getBucketLocation()">GetBucketLocation</button>
+                        <button class="btn btn-secondary" onclick="getBucketVersioning()">GetBucketVersioning</button>
+                        <button class="btn btn-secondary" onclick="putBucketVersioning()">PutBucketVersioning</button>
+                        <button class="btn btn-secondary" onclick="listObjectVersions()">ListObjectVersions</button>
+                    </div>
+                    <div style="margin-bottom:12px;"><label style="font-size:12px;font-weight:600;color:#666;text-transform:uppercase;letter-spacing:0.5px;">生命周期管理</label></div>
+                    <div class="action-grid">
+                        <button class="btn btn-secondary" onclick="getBucketLifecycle()">GetBucketLifecycle</button>
+                        <button class="btn btn-secondary" onclick="putBucketLifecycle()">PutBucketLifecycle</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteBucketLifecycle()">DeleteBucketLifecycle</button>
+                    </div>
+                    <div style="margin-top:12px;margin-bottom:12px;"><label style="font-size:12px;font-weight:600;color:#666;text-transform:uppercase;letter-spacing:0.5px;">ACL / Tagging / Policy</label></div>
+                    <div class="action-grid">
+                        <button class="btn btn-secondary" onclick="getBucketAcl()">GetBucketAcl</button>
+                        <button class="btn btn-secondary" onclick="getBucketTagging()">GetBucketTagging</button>
+                        <button class="btn btn-secondary" onclick="getBucketPolicy()">GetBucketPolicy</button>
+                        <button class="btn btn-secondary" onclick="getBucketEncryption()">GetBucketEncryption</button>
+                    </div>
+                </div>
+                <!-- Object 操作 -->
+                <div class="tab-content" id="tab-object">
+                    <div class="form-group">
+                        <label>Bucket 名称</label>
+                        <input type="text" id="objBucket" placeholder="my-bucket">
+                    </div>
+                    <div class="form-group">
+                        <label>Object Key</label>
+                        <input type="text" id="objKey" placeholder="path/to/file.txt">
+                    </div>
+                    <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+                        <div>点击或拖拽文件到此处上传</div>
+                        <div style="font-size:11px;margin-top:4px;">支持任意文件类型</div>
+                        <input type="file" id="fileInput" onchange="onFileSelected(event)">
+                    </div>
+                    <div class="progress-bar" id="uploadProgress" style="display:none;">
+                        <div class="fill" id="uploadProgressFill" style="width:0%"></div>
+                    </div>
+                    <div class="action-grid" style="margin-top:12px;">
+                        <button class="btn btn-primary" onclick="putObject()">PutObject (上传文件)</button>
+                        <button class="btn btn-primary" onclick="putTextObject()">PutObject (文本)</button>
+                        <button class="btn btn-primary" onclick="getObject()">GetObject</button>
+                        <button class="btn btn-primary" onclick="headObject()">HeadObject</button>
+                        <button class="btn btn-danger" onclick="deleteObject()">DeleteObject</button>
+                        <button class="btn btn-secondary" onclick="listObjects()">ListObjects</button>
+                        <button class="btn btn-secondary" onclick="listObjectsV2()">ListObjectsV2</button>
+                        <button class="btn btn-secondary" onclick="getObjectAcl()">GetObjectAcl</button>
+                        <button class="btn btn-secondary" onclick="getObjectTagging()">GetObjectTagging</button>
+                    </div>
+                    <div class="form-group">
+                        <label>文本内容 (PutObject 文本模式)</label>
+                        <textarea id="textContent" rows="4" placeholder="输入要上传的文本内容..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>自定义元数据 (x-amz-meta-*)</label>
+                        <textarea id="customMetadata" rows="2" placeholder='{"key1":"value1","key2":"value2"}'></textarea>
+                    </div>
+                </div>
+                <!-- 文件浏览 -->
+                <div class="tab-content" id="tab-browser">
+                    <div class="form-group">
+                        <label>Bucket 名称</label>
+                        <div style="display:flex;gap:8px;">
+                            <input type="text" id="browserBucket" placeholder="my-bucket" style="flex:1">
+                            <button class="btn btn-primary" onclick="browseBucket()">浏览</button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>路径前缀 (可选)</label>
+                        <div style="display:flex;gap:8px;">
+                            <input type="text" id="browserPrefix" placeholder="folder/" style="flex:1">
+                            <button class="btn btn-secondary btn-sm" onclick="browserGoUp()">上级目录</button>
+                        </div>
+                    </div>
+                    <!-- 面包屑导航 -->
+                    <div id="browserBreadcrumb" style="margin-bottom:8px;font-size:12px;color:#666;display:none;"></div>
+                    <!-- 文件列表表格 -->
+                    <div id="browserList" style="display:none;">
+                        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                            <thead>
+                                <tr style="background:#fafafa;border-bottom:2px solid #e8e8e8;">
+                                    <th style="text-align:left;padding:8px;">名称</th>
+                                    <th style="text-align:right;padding:8px;width:80px;">大小</th>
+                                    <th style="text-align:right;padding:8px;width:140px;">修改时间</th>
+                                    <th style="text-align:center;padding:8px;width:120px;">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="browserTableBody"></tbody>
+                        </table>
+                    </div>
+                    <div id="browserEmpty" style="text-align:center;padding:32px;color:#999;display:none;">该路径下没有文件</div>
+                    <!-- 预览区域 -->
+                    <div id="browserPreview" style="display:none;margin-top:16px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                            <label style="font-size:12px;font-weight:600;color:#666;text-transform:uppercase;letter-spacing:0.5px;">文件预览</label>
+                            <button class="btn btn-secondary btn-sm" onclick="closeBrowserPreview()">关闭预览</button>
+                        </div>
+                        <div id="previewContent" style="border:1px solid #e8e8e8;border-radius:6px;overflow:hidden;"></div>
+                    </div>
+                </div>
+                <!-- Multipart 上传 -->
+                <div class="tab-content" id="tab-multipart">
+                    <div class="form-group">
+                        <label>Bucket 名称</label>
+                        <input type="text" id="mpBucket" placeholder="my-bucket">
+                    </div>
+                    <div class="form-group">
+                        <label>Object Key</label>
+                        <input type="text" id="mpKey" placeholder="large-file.bin">
+                    </div>
+                    <div class="form-group">
+                        <label>Upload ID (Complete/Abort 时需要)</label>
+                        <input type="text" id="mpUploadId" placeholder="上传后自动填入">
+                    </div>
+                    <div class="action-grid">
+                        <button class="btn btn-primary" onclick="createMultipartUpload()">InitiateMultipartUpload</button>
+                        <button class="btn btn-primary" onclick="uploadPart()">UploadPart</button>
+                        <button class="btn btn-primary" onclick="completeMultipartUpload()">CompleteMultipartUpload</button>
+                        <button class="btn btn-danger" onclick="abortMultipartUpload()">AbortMultipartUpload</button>
+                        <button class="btn btn-secondary" onclick="listMultipartUploads()">ListMultipartUploads</button>
+                        <button class="btn btn-secondary" onclick="listParts()">ListParts</button>
+                    </div>
+                    <div class="form-group">
+                        <label>分片大小 (MB)</label>
+                        <input type="number" id="mpPartSize" value="5" min="5" max="100">
+                    </div>
+                    <div class="upload-zone" id="mpUploadZone" onclick="document.getElementById('mpFileInput').click()">
+                        <div>点击选择大文件进行分片上传</div>
+                        <input type="file" id="mpFileInput" onchange="onMpFileSelected(event)">
+                    </div>
+                    <div class="progress-bar" id="mpProgress" style="display:none;">
+                        <div class="fill" id="mpProgressFill" style="width:0%"></div>
+                    </div>
+                    <button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="autoMultipartUpload()">自动分片上传（选择文件后点击）</button>
+                    <div id="mpStatus" style="margin-top:8px;font-size:12px;color:#666;"></div>
+                </div>
+                <!-- 批量操作 -->
+                <div class="tab-content" id="tab-batch">
+                    <div class="form-group">
+                        <label>Bucket 名称</label>
+                        <input type="text" id="batchBucket" placeholder="my-bucket">
+                    </div>
+                    <div class="form-group">
+                        <label>要删除的 Object Keys (每行一个)</label>
+                        <textarea id="batchKeys" rows="6" placeholder="file1.txt&#10;file2.txt&#10;path/to/file3.txt"></textarea>
+                    </div>
+                    <div class="action-grid">
+                        <button class="btn btn-danger" onclick="deleteMultipleObjects()">DeleteMultipleObjects</button>
+                        <button class="btn btn-secondary" onclick="batchPutObjects()">批量 PutObject (测试用)</button>
+                    </div>
+                    <div class="form-group">
+                        <label>批量创建数量</label>
+                        <input type="number" id="batchCount" value="10" min="1" max="1000">
+                    </div>
+                </div>
+                <!-- 预签名 URL -->
+                <div class="tab-content" id="tab-presigned">
+                    <div class="form-group">
+                        <label>Bucket 名称</label>
+                        <input type="text" id="psBucket" placeholder="my-bucket">
+                    </div>
+                    <div class="form-group">
+                        <label>Object Key</label>
+                        <input type="text" id="psKey" placeholder="path/to/file.txt">
+                    </div>
+                    <div class="form-group">
+                        <label>HTTP 方法</label>
+                        <select id="psMethod">
+                            <option value="GET">GET (下载)</option>
+                            <option value="PUT">PUT (上传)</option>
+                            <option value="DELETE">DELETE (删除)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>过期时间 (秒)</label>
+                        <input type="number" id="psExpires" value="3600" min="1" max="604800">
+                    </div>
+                    <button class="btn btn-primary" onclick="generatePresignedUrl()">生成预签名 URL</button>
+                    <div class="form-group" style="margin-top:12px;">
+                        <label>预签名 URL</label>
+                        <textarea id="presignedUrl" rows="3" readonly style="background:#f5f5f5;"></textarea>
+                    </div>
+                    <div style="display:flex;gap:8px;">
+                        <button class="btn btn-secondary btn-sm" onclick="copyPresignedUrl()">复制 URL</button>
+                        <button class="btn btn-secondary btn-sm" onclick="openPresignedUrl()">在浏览器打开</button>
+                    </div>
+                </div>
+                <!-- 原始请求 -->
+                <div class="tab-content" id="tab-raw">
+                    <div class="form-group">
+                        <label>HTTP 方法</label>
+                        <select id="rawMethod">
+                            <option value="GET">GET</option><option value="PUT">PUT</option>
+                            <option value="POST">POST</option><option value="DELETE">DELETE</option>
+                            <option value="HEAD">HEAD</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>路径 (如 /bucket/key)</label>
+                        <input type="text" id="rawPath" placeholder="/my-bucket/my-key">
+                    </div>
+                    <div class="form-group">
+                        <label>查询参数 (如 ?tagging&versionId=xxx)</label>
+                        <input type="text" id="rawQuery" placeholder="?tagging">
+                    </div>
+                    <div class="form-group">
+                        <label>请求体</label>
+                        <textarea id="rawBody" rows="6" placeholder="请求体内容 (可选)"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>额外请求头 (JSON)</label>
+                        <textarea id="rawHeaders" rows="3" placeholder='{"Content-Type":"text/plain"}'></textarea>
+                    </div>
+                    <button class="btn btn-primary" onclick="sendRawRequest()">发送请求</button>
+                </div>
+                <!-- 响应结果 -->
+                <div style="margin-top:16px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                        <label style="font-size:12px;font-weight:600;color:#666;text-transform:uppercase;letter-spacing:0.5px;">响应结果</label>
+                        <button class="btn btn-secondary btn-sm" onclick="clearResponse()">清空</button>
+                    </div>
+                    <div class="response-area" id="responseArea">等待操作...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+// ==================== AWS SigV4 签名实现 ====================
+
+/** SHA-256 哈希计算 */
+async function sha256(data) {
+    return await crypto.subtle.digest('SHA-256', data); // 使用 Web Crypto API
+}
+
+/** HMAC-SHA256 计算 */
+async function hmacSha256(key, data) {
+    if (typeof data === 'string') data = new TextEncoder().encode(data); // 字符串转 ArrayBuffer
+    const cryptoKey = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    return await crypto.subtle.sign('HMAC', cryptoKey, data);
+}
+
+/** ArrayBuffer 转十六进制字符串 */
+function bufToHex(buffer) {
+    return Array.from(new Uint8Array(buffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** 计算 SHA-256 哈希并返回十六进制字符串 */
+async function hashSha256Hex(data) {
+    return bufToHex(await sha256(data));
+}
+
+/** URI 编码（符合 AWS SigV4 规范） */
+function uriEncode(s, encodeSlash = true) {
+    let result = '';
+    for (let i = 0; i < s.length; i++) {
+        const ch = s.charAt(i);
+        if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
+            (ch >= '0' && ch <= '9') || ch === '-' || ch === '.' || ch === '_' || ch === '~') {
+            result += ch; // 未保留字符不编码
+        } else if (ch === '/' && !encodeSlash) {
+            result += ch; // 斜杠且不编码时保留
+        } else {
+            const bytes = new TextEncoder().encode(ch);
+            for (const b of bytes) result += '%' + b.toString(16).toUpperCase().padStart(2, '0'); // 百分号编码
+        }
+    }
+    return result;
+}
+
+/** 规范化 URI 编码（路径分段编码） */
+function canonicalURIEncode(uri) {
+    return uri.split('/').map(p => uriEncode(p, false)).join('/');
+}
+
+/** 规范化查询字符串编码 */
+function canonicalQueryEncode(queryString) {
+    if (!queryString) return '';
+    const params = new URLSearchParams(queryString);
+    const keys = [...params.keys()].sort(); // 按键名字典序排序
+    const pairs = [];
+    for (const k of keys) {
+        const vals = params.getAll(k).sort(); // 同一键的值也排序
+        for (const v of vals) pairs.push(uriEncode(k, true) + '=' + uriEncode(v, true));
+    }
+    return pairs.join('&');
+}
+
+/** 派生签名密钥（AWS SigV4 密钥派生链） */
+async function deriveSigningKey(secretKey, dateStamp, region, service) {
+    const kDate = await hmacSha256(new TextEncoder().encode('AWS4' + secretKey), dateStamp);
+    const kRegion = await hmacSha256(kDate, region);
+    const kService = await hmacSha256(kRegion, service);
+    const kSigning = await hmacSha256(kService, 'aws4_request');
+    return kSigning;
+}
+
+/** 构建规范化请求（SigV4 核心步骤） */
+function buildCanonicalRequest(method, path, queryString, headers, signedHeaders, payloadHash) {
+    const canonicalURI = canonicalURIEncode(path || '/'); // 规范化 URI
+    const canonicalQueryString = canonicalQueryEncode(queryString); // 规范化查询字符串
+    const sortedHeaders = [...signedHeaders].sort(); // 排序签名头部
+    let canonicalHeaders = '';
+    for (const h of sortedHeaders) {
+        const val = (headers[h] || '').trim().replace(/\s+/g, ' '); // 合并连续空白
+        canonicalHeaders += h.toLowerCase() + ':' + val + '\n';
+    }
+    const signedHeadersStr = sortedHeaders.map(h => h.toLowerCase()).join(';');
+    return method + '\n' + canonicalURI + '\n' + canonicalQueryString + '\n' +
+        canonicalHeaders + '\n' + signedHeadersStr + '\n' + payloadHash;
+}
+
+/** 构建 AWS SigV4 签名 */
+async function signRequest(opts) {
+    const { method, url, headers, body, accessKey, secretKey, region, service = 's3' } = opts;
+    const parsedUrl = new URL(url);
+    const path = parsedUrl.pathname;
+    const queryString = parsedUrl.search.substring(1); // 去掉开头的 ?
+    // 生成时间戳
+    const now = new Date();
+    const amzDate = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, ''); // YYYYMMDDTHHMMSSZ
+    const dateStamp = amzDate.substring(0, 8); // YYYYMMDD
+    // 计算请求体哈希
+    let payloadHash;
+    if (body) {
+        payloadHash = await hashSha256Hex(body instanceof ArrayBuffer ? body : new TextEncoder().encode(body));
+    } else {
+        payloadHash = await hashSha256Hex(new Uint8Array(0)); // 空请求体哈希
+    }
+    // 设置必要的请求头
+    headers['host'] = parsedUrl.host;
+    headers['x-amz-date'] = amzDate;
+    headers['x-amz-content-sha256'] = payloadHash;
+    // 确定需要签名的头部
+    const signedHeaderNames = ['host', 'x-amz-content-sha256', 'x-amz-date'];
+    if (headers['content-type']) signedHeaderNames.push('content-type');
+    for (const h of Object.keys(headers)) {
+        if (h.toLowerCase().startsWith('x-amz-') && !signedHeaderNames.includes(h.toLowerCase())) {
+            signedHeaderNames.push(h.toLowerCase()); // 添加自定义 x-amz-* 头部
+        }
+    }
+    // 构建规范化请求
+    const canonicalRequest = buildCanonicalRequest(method, path, queryString, headers, signedHeaderNames, payloadHash);
+    // 构建待签名字符串
+    const credentialScope = dateStamp + '/' + region + '/' + service + '/aws4_request';
+    const canonicalRequestHash = await hashSha256Hex(new TextEncoder().encode(canonicalRequest));
+    const stringToSign = 'AWS4-HMAC-SHA256\n' + amzDate + '\n' + credentialScope + '\n' + canonicalRequestHash;
+    // 派生签名密钥并计算签名
+    const signingKey = await deriveSigningKey(secretKey, dateStamp, region, service);
+    const signature = bufToHex(await hmacSha256(signingKey, stringToSign));
+    // 构建 Authorization 头
+    const signedHeadersStr = signedHeaderNames.map(h => h.toLowerCase()).sort().join(';');
+    headers['Authorization'] = 'AWS4-HMAC-SHA256 Credential=' + accessKey + '/' + credentialScope +
+        ', SignedHeaders=' + signedHeadersStr + ', Signature=' + signature;
+    return { headers, amzDate, signature };
+}
+
+/** 生成预签名 URL（SigV4 签名方式） */
+async function signPresignedUrl(opts) {
+    const { method, endpoint, bucket, key, accessKey, secretKey, region, expires = 3600 } = opts;
+    const path = '/' + bucket + '/' + key;
+    const url = new URL(endpoint + path);
+    const now = new Date();
+    const amzDate = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    const dateStamp = amzDate.substring(0, 8);
+    const credentialScope = dateStamp + '/' + region + '/s3/aws4_request';
+    // 设置预签名 URL 查询参数
+    url.searchParams.set('X-Amz-Algorithm', 'AWS4-HMAC-SHA256');
+    url.searchParams.set('X-Amz-Credential', accessKey + '/' + credentialScope);
+    url.searchParams.set('X-Amz-Date', amzDate);
+    url.searchParams.set('X-Amz-Expires', expires.toString());
+    url.searchParams.set('X-Amz-SignedHeaders', 'host');
+    // 构建规范化请求（预签名使用 UNSIGNED-PAYLOAD）
+    const canonicalRequest = buildCanonicalRequest(
+        method, path, url.search.substring(1), { 'host': url.host }, ['host'], 'UNSIGNED-PAYLOAD'
+    );
+    const canonicalRequestHash = await hashSha256Hex(new TextEncoder().encode(canonicalRequest));
+    const stringToSign = 'AWS4-HMAC-SHA256\n' + amzDate + '\n' + credentialScope + '\n' + canonicalRequestHash;
+    const signingKey = await deriveSigningKey(secretKey, dateStamp, region, 's3');
+    const signature = bufToHex(await hmacSha256(signingKey, stringToSign));
+    url.searchParams.set('X-Amz-Signature', signature);
+    return url.toString();
+}
+
+// ==================== 工具函数 ====================
+
+/** 获取连接配置 */
+function getConfig() {
+    return {
+        endpoint: document.getElementById('endpoint').value.replace(/\/+$/, ''),
+        region: document.getElementById('region').value,
+        accessKey: document.getElementById('accessKey').value,
+        secretKey: document.getElementById('secretKey').value,
+    };
+}
+
+/** 添加日志条目 */
+function addLog(msg, type = 'info') {
+    const logArea = document.getElementById('logArea');
+    const now = new Date();
+    const timeStr = [now.getHours(), now.getMinutes(), now.getSeconds()].map(n => String(n).padStart(2, '0')).join(':');
+    const entry = document.createElement('div');
+    entry.className = 'log-entry';
+    entry.innerHTML = '<span class="log-time">[' + timeStr + ']</span> <span class="log-' + type + '">' + msg + '</span>';
+    logArea.appendChild(entry);
+    logArea.scrollTop = logArea.scrollHeight;
+}
+
+/** 显示响应结果 */
+function showResponse(text, type = 'info') {
+    document.getElementById('responseArea').innerHTML = '<span class="' + type + '">' + escapeHtml(text) + '</span>';
+}
+
+/** HTML 转义 */
+function escapeHtml(str) {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** 清空响应区域 */
+function clearResponse() {
+    document.getElementById('responseArea').innerHTML = '等待操作...';
+}
+
+/** 切换标签页 */
+function switchTab(name) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelector('[onclick="switchTab(\'' + name + '\')"]').classList.add('active');
+    document.getElementById('tab-' + name).classList.add('active');
+}
+
+/** 格式化 XML */
+function formatXml(xml) {
+    let formatted = '', indent = 0;
+    xml.split(/>\s*</).forEach(node => {
+        if (node.match(/^\/\w/)) indent--;
+        formatted += '  '.repeat(Math.max(0, indent)) + '<' + node + '>\n';
+        if (node.match(/^<?\w[^>]*[^/]/) && !node.startsWith('?') && !node.startsWith('!')) indent++;
+    });
+    return formatted.substring(1, formatted.length - 2);
+}
+
+/** 格式化 HTTP 响应 */
+function formatResponse(response, body) {
+    let result = 'HTTP ' + response.status + ' ' + response.statusText + '\n';
+    response.headers.forEach((val, key) => { result += key + ': ' + val + '\n'; });
+    result += '\n';
+    if (body.startsWith('<?xml') || body.startsWith('<')) {
+        try { result += formatXml(body); } catch { result += body; }
+    } else {
+        result += body || '(空响应体)';
+    }
+    return result;
+}
+
+/** 发送已签名的 S3 请求 */
+async function sendS3Request(method, path, extraHeaders = {}, body = null, queryString = '') {
+    const cfg = getConfig();
+    const url = cfg.endpoint + path + (queryString ? '?' + queryString : '');
+    const headers = { ...extraHeaders };
+    await signRequest({ method, url, headers, body, accessKey: cfg.accessKey, secretKey: cfg.secretKey, region: cfg.region });
+    const fetchOpts = { method, headers };
+    if (body !== null) fetchOpts.body = body;
+    addLog(method + ' ' + path + (queryString ? '?' + queryString : ''), 'info');
+    try {
+        const response = await fetch(url, fetchOpts);
+        const responseBody = await response.text();
+        showResponse(formatResponse(response, responseBody), response.ok ? 'ok' : 'err');
+        addLog(response.status + ' ' + response.statusText, response.ok ? 'ok' : 'err');
+        return { response, body: responseBody };
+    } catch (err) {
+        showResponse('请求失败: ' + err.message, 'err');
+        addLog('请求失败: ' + err.message, 'err');
+        return { response: null, body: '' };
+    }
+}
+
+// ==================== 连接测试与配置 ====================
+
+/** 测试 S3 连接 */
+async function testConnection() {
+    const dot = document.getElementById('statusDot');
+    const status = document.getElementById('connStatus');
+    const btn = document.getElementById('testBtn');
+    dot.className = 'status-dot testing';
+    status.className = 'conn-status idle';
+    status.textContent = '正在测试连接...';
+    btn.disabled = true;
+    try {
+        const cfg = getConfig();
+        const url = cfg.endpoint + '/';
+        const headers = {};
+        await signRequest({ method: 'GET', url, headers, accessKey: cfg.accessKey, secretKey: cfg.secretKey, region: cfg.region });
+        const response = await fetch(url, { method: 'GET', headers });
+        if (response.ok) {
+            dot.className = 'status-dot connected';
+            status.className = 'conn-status ok';
+            status.textContent = '连接成功 (' + response.status + ')';
+            addLog('连接测试成功', 'ok');
+        } else {
+            dot.className = 'status-dot disconnected';
+            status.className = 'conn-status fail';
+            status.textContent = '连接失败 (' + response.status + ')';
+            addLog('连接测试失败: HTTP ' + response.status, 'err');
+        }
+    } catch (err) {
+        dot.className = 'status-dot disconnected';
+        status.className = 'conn-status fail';
+        status.textContent = '连接失败: ' + err.message;
+        addLog('连接测试失败: ' + err.message, 'err');
+    }
+    btn.disabled = false;
+}
+
+/** 保存配置到 localStorage */
+function saveConfig() {
+    localStorage.setItem('s3test_config', JSON.stringify(getConfig()));
+    addLog('配置已保存', 'ok');
+}
+
+/** 从 localStorage 加载配置 */
+function loadConfig() {
+    const data = localStorage.getItem('s3test_config');
+    if (!data) { addLog('没有已保存的配置', 'warn'); return; }
+    try {
+        const cfg = JSON.parse(data);
+        document.getElementById('endpoint').value = cfg.endpoint || '';
+        document.getElementById('region').value = cfg.region || 'us-east-1';
+        document.getElementById('accessKey').value = cfg.accessKey || '';
+        document.getElementById('secretKey').value = cfg.secretKey || '';
+        addLog('配置已加载', 'ok');
+    } catch { addLog('配置加载失败', 'err'); }
+}
+
+// ==================== Bucket 操作 ====================
+
+async function listBuckets() { await sendS3Request('GET', '/'); }
+
+async function createBucket() {
+    const b = document.getElementById('bucketName').value;
+    if (!b) { showResponse('请输入 Bucket 名称', 'warn'); return; }
+    await sendS3Request('PUT', '/' + b);
+}
+
+async function headBucket() {
+    const b = document.getElementById('bucketName').value;
+    if (!b) { showResponse('请输入 Bucket 名称', 'warn'); return; }
+    await sendS3Request('HEAD', '/' + b);
+}
+
+async function deleteBucket() {
+    const b = document.getElementById('bucketName').value;
+    if (!b) { showResponse('请输入 Bucket 名称', 'warn'); return; }
+    if (!confirm('确定要删除 Bucket "' + b + '" 吗？')) return;
+    await sendS3Request('DELETE', '/' + b);
+}
+
+async function getBucketLocation() {
+    const b = document.getElementById('bucketName').value;
+    if (!b) { showResponse('请输入 Bucket 名称', 'warn'); return; }
+    await sendS3Request('GET', '/' + b, {}, null, 'location');
+}
+
+async function getBucketVersioning() {
+    const b = document.getElementById('bucketName').value;
+    if (!b) { showResponse('请输入 Bucket 名称', 'warn'); return; }
+    await sendS3Request('GET', '/' + b, {}, null, 'versioning');
+}
+
+async function putBucketVersioning() {
+    const b = document.getElementById('bucketName').value;
+    if (!b) { showResponse('请输入 Bucket 名称', 'warn'); return; }
+    const xml = '<?xml version="1.0" encoding="UTF-8"?><VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>Enabled</Status></VersioningConfiguration>';
+    await sendS3Request('PUT', '/' + b, { 'Content-Type': 'application/xml' }, xml, 'versioning');
+}
+
+async function listObjectVersions() {
+    const b = document.getElementById('bucketName').value;
+    if (!b) { showResponse('请输入 Bucket 名称', 'warn'); return; }
+    await sendS3Request('GET', '/' + b, {}, null, 'versions');
+}
+
+async function getBucketLifecycle() {
+    const b = document.getElementById('bucketName').value;
+    if (!b) { showResponse('请输入 Bucket 名称', 'warn'); return; }
+    await sendS3Request('GET', '/' + b, {}, null, 'lifecycle');
+}
+
+async function putBucketLifecycle() {
+    const b = document.getElementById('bucketName').value;
+    if (!b) { showResponse('请输入 Bucket 名称', 'warn'); return; }
+    const xml = '<?xml version="1.0" encoding="UTF-8"?><LifecycleConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Rule><ID>expire-30-days</ID><Status>Enabled</Status><Prefix></Prefix><Expiration><Days>30</Days></Expiration></Rule></LifecycleConfiguration>';
+    await sendS3Request('PUT', '/' + b, { 'Content-Type': 'application/xml' }, xml, 'lifecycle');
+}
+
+async function deleteBucketLifecycle() {
+    const b = document.getElementById('bucketName').value;
+    if (!b) { showResponse('请输入 Bucket 名称', 'warn'); return; }
+    await sendS3Request('DELETE', '/' + b, {}, null, 'lifecycle');
+}
+
+async function getBucketAcl() {
+    const b = document.getElementById('bucketName').value;
+    if (!b) { showResponse('请输入 Bucket 名称', 'warn'); return; }
+    await sendS3Request('GET', '/' + b, {}, null, 'acl');
+}
+
+async function getBucketTagging() {
+    const b = document.getElementById('bucketName').value;
+    if (!b) { showResponse('请输入 Bucket 名称', 'warn'); return; }
+    await sendS3Request('GET', '/' + b, {}, null, 'tagging');
+}
+
+async function getBucketPolicy() {
+    const b = document.getElementById('bucketName').value;
+    if (!b) { showResponse('请输入 Bucket 名称', 'warn'); return; }
+    await sendS3Request('GET', '/' + b, {}, null, 'policy');
+}
+
+async function getBucketEncryption() {
+    const b = document.getElementById('bucketName').value;
+    if (!b) { showResponse('请输入 Bucket 名称', 'warn'); return; }
+    await sendS3Request('GET', '/' + b, {}, null, 'encryption');
+}
+
+// ==================== Object 操作 ====================
+
+async function putObject() {
+    const bucket = document.getElementById('objBucket').value;
+    const key = document.getElementById('objKey').value;
+    if (!bucket || !key) { showResponse('请输入 Bucket 和 Object Key', 'warn'); return; }
+    const fileInput = document.getElementById('fileInput');
+    if (!fileInput.files || fileInput.files.length === 0) { showResponse('请先选择文件', 'warn'); return; }
+    const file = fileInput.files[0];
+    const arrayBuffer = await file.arrayBuffer();
+    const progressBar = document.getElementById('uploadProgress');
+    const progressFill = document.getElementById('uploadProgressFill');
+    progressBar.style.display = 'block';
+    progressFill.style.width = '0%';
+    const extraHeaders = { 'Content-Type': file.type || 'application/octet-stream' };
+    try {
+        const metaStr = document.getElementById('customMetadata').value.trim();
+        if (metaStr) { const meta = JSON.parse(metaStr); for (const [k, v] of Object.entries(meta)) extraHeaders['x-amz-meta-' + k] = v; }
+    } catch {}
+    progressFill.style.width = '50%';
+    await sendS3Request('PUT', '/' + bucket + '/' + key, extraHeaders, arrayBuffer);
+    progressFill.style.width = '100%';
+    setTimeout(() => { progressBar.style.display = 'none'; }, 1000);
+}
+
+async function putTextObject() {
+    const bucket = document.getElementById('objBucket').value;
+    const key = document.getElementById('objKey').value;
+    const text = document.getElementById('textContent').value;
+    if (!bucket || !key) { showResponse('请输入 Bucket 和 Object Key', 'warn'); return; }
+    if (!text) { showResponse('请输入文本内容', 'warn'); return; }
+    const extraHeaders = { 'Content-Type': 'text/plain' };
+    try {
+        const metaStr = document.getElementById('customMetadata').value.trim();
+        if (metaStr) { const meta = JSON.parse(metaStr); for (const [k, v] of Object.entries(meta)) extraHeaders['x-amz-meta-' + k] = v; }
+    } catch {}
+    await sendS3Request('PUT', '/' + bucket + '/' + key, extraHeaders, text);
+}
+
+async function getObject() {
+    const bucket = document.getElementById('objBucket').value;
+    const key = document.getElementById('objKey').value;
+    if (!bucket || !key) { showResponse('请输入 Bucket 和 Object Key', 'warn'); return; }
+    const cfg = getConfig();
+    const url = cfg.endpoint + '/' + bucket + '/' + key;
+    const headers = {};
+    await signRequest({ method: 'GET', url, headers, accessKey: cfg.accessKey, secretKey: cfg.secretKey, region: cfg.region });
+    try {
+        const response = await fetch(url, { method: 'GET', headers });
+        if (response.ok) {
+            let info = 'HTTP ' + response.status + ' ' + response.statusText + '\n';
+            response.headers.forEach((v, k) => { info += k + ': ' + v + '\n'; });
+            const body = await response.text();
+            info += '\n' + body;
+            showResponse(info, 'ok');
+        } else {
+            const body = await response.text();
+            showResponse(formatResponse(response, body), 'err');
+        }
+        addLog(response.status + ' ' + response.statusText, response.ok ? 'ok' : 'err');
+    } catch (err) { showResponse('请求失败: ' + err.message, 'err'); }
+}
+
+async function headObject() {
+    const bucket = document.getElementById('objBucket').value;
+    const key = document.getElementById('objKey').value;
+    if (!bucket || !key) { showResponse('请输入 Bucket 和 Object Key', 'warn'); return; }
+    const cfg = getConfig();
+    const url = cfg.endpoint + '/' + bucket + '/' + key;
+    const headers = {};
+    await signRequest({ method: 'HEAD', url, headers, accessKey: cfg.accessKey, secretKey: cfg.secretKey, region: cfg.region });
+    try {
+        const response = await fetch(url, { method: 'HEAD', headers });
+        let info = 'HTTP ' + response.status + ' ' + response.statusText + '\n';
+        response.headers.forEach((v, k) => { info += k + ': ' + v + '\n'; });
+        showResponse(info, response.ok ? 'ok' : 'err');
+        addLog(response.status + ' ' + response.statusText, response.ok ? 'ok' : 'err');
+    } catch (err) { showResponse('请求失败: ' + err.message, 'err'); }
+}
+
+async function deleteObject() {
+    const bucket = document.getElementById('objBucket').value;
+    const key = document.getElementById('objKey').value;
+    if (!bucket || !key) { showResponse('请输入 Bucket 和 Object Key', 'warn'); return; }
+    if (!confirm('确定要删除 "' + key + '" 吗？')) return;
+    await sendS3Request('DELETE', '/' + bucket + '/' + key);
+}
+
+async function listObjects() {
+    const bucket = document.getElementById('objBucket').value;
+    if (!bucket) { showResponse('请输入 Bucket 名称', 'warn'); return; }
+    await sendS3Request('GET', '/' + bucket);
+}
+
+async function listObjectsV2() {
+    const bucket = document.getElementById('objBucket').value;
+    if (!bucket) { showResponse('请输入 Bucket 名称', 'warn'); return; }
+    await sendS3Request('GET', '/' + bucket, {}, null, 'list-type=2');
+}
+
+async function getObjectAcl() {
+    const bucket = document.getElementById('objBucket').value;
+    const key = document.getElementById('objKey').value;
+    if (!bucket || !key) { showResponse('请输入 Bucket 和 Object Key', 'warn'); return; }
+    await sendS3Request('GET', '/' + bucket + '/' + key, {}, null, 'acl');
+}
+
+async function getObjectTagging() {
+    const bucket = document.getElementById('objBucket').value;
+    const key = document.getElementById('objKey').value;
+    if (!bucket || !key) { showResponse('请输入 Bucket 和 Object Key', 'warn'); return; }
+    await sendS3Request('GET', '/' + bucket + '/' + key, {}, null, 'tagging');
+}
+
+function onFileSelected(event) {
+    const file = event.target.files[0];
+    if (file) {
+        if (!document.getElementById('objKey').value) document.getElementById('objKey').value = file.name;
+        document.getElementById('uploadZone').querySelector('div').textContent =
+            '已选择: ' + file.name + ' (' + (file.size / 1024).toFixed(1) + ' KB)';
+    }
+}
+
+// ==================== Multipart 上传 ====================
+
+let multipartETags = []; // 存储分片 ETag 列表
+let selectedMultipartFile = null; // 选中的大文件引用
+
+async function createMultipartUpload() {
+    const bucket = document.getElementById('mpBucket').value;
+    const key = document.getElementById('mpKey').value;
+    if (!bucket || !key) { showResponse('请输入 Bucket 和 Object Key', 'warn'); return; }
+    multipartETags = [];
+    const { response, body } = await sendS3Request('POST', '/' + bucket + '/' + key,
+        { 'Content-Type': 'application/octet-stream' }, null, 'uploads=');
+    if (response && response.ok && body) {
+        const match = body.match(/<UploadId>([^<]+)<\/UploadId>/);
+        if (match) { document.getElementById('mpUploadId').value = match[1]; addLog('UploadId: ' + match[1], 'ok'); }
+    }
+}
+
+async function uploadPart() {
+    const bucket = document.getElementById('mpBucket').value;
+    const key = document.getElementById('mpKey').value;
+    const uploadId = document.getElementById('mpUploadId').value;
+    if (!bucket || !key || !uploadId) { showResponse('请填写 Bucket、Key 和 UploadId', 'warn'); return; }
+    const text = prompt('输入分片内容:', 'Part data ' + (multipartETags.length + 1));
+    if (text === null) return;
+    const partNumber = multipartETags.length + 1;
+    const { response } = await sendS3Request('PUT', '/' + bucket + '/' + key,
+        { 'Content-Type': 'application/octet-stream' }, text, 'partNumber=' + partNumber + '&uploadId=' + uploadId);
+    if (response && response.ok) {
+        const etag = response.headers.get('ETag');
+        multipartETags.push({ partNumber, etag: etag || '' });
+        addLog('Part ' + partNumber + ' ETag: ' + (etag || 'N/A'), 'ok');
+    }
+}
+
+async function completeMultipartUpload() {
+    const bucket = document.getElementById('mpBucket').value;
+    const key = document.getElementById('mpKey').value;
+    const uploadId = document.getElementById('mpUploadId').value;
+    if (!bucket || !key || !uploadId) { showResponse('请填写 Bucket、Key 和 UploadId', 'warn'); return; }
+    if (multipartETags.length === 0) { showResponse('没有已上传的分片', 'warn'); return; }
+    let partsXml = '';
+    for (const p of multipartETags) partsXml += '<Part><PartNumber>' + p.partNumber + '</PartNumber><ETag>' + p.etag + '</ETag></Part>';
+    const xml = '<?xml version="1.0" encoding="UTF-8"?><CompleteMultipartUpload xmlns="http://s3.amazonaws.com/doc/2006-03-01/">' + partsXml + '</CompleteMultipartUpload>';
+    await sendS3Request('POST', '/' + bucket + '/' + key, { 'Content-Type': 'application/xml' }, xml, 'uploadId=' + uploadId);
+    multipartETags = [];
+}
+
+async function abortMultipartUpload() {
+    const bucket = document.getElementById('mpBucket').value;
+    const key = document.getElementById('mpKey').value;
+    const uploadId = document.getElementById('mpUploadId').value;
+    if (!bucket || !key || !uploadId) { showResponse('请填写 Bucket、Key 和 UploadId', 'warn'); return; }
+    if (!confirm('确定要中止此分片上传吗？')) return;
+    await sendS3Request('DELETE', '/' + bucket + '/' + key, {}, null, 'uploadId=' + uploadId);
+    multipartETags = [];
+}
+
+async function listMultipartUploads() {
+    const bucket = document.getElementById('mpBucket').value;
+    if (!bucket) { showResponse('请输入 Bucket 名称', 'warn'); return; }
+    await sendS3Request('GET', '/' + bucket, {}, null, 'uploads');
+}
+
+async function listParts() {
+    const bucket = document.getElementById('mpBucket').value;
+    const key = document.getElementById('mpKey').value;
+    const uploadId = document.getElementById('mpUploadId').value;
+    if (!bucket || !key || !uploadId) { showResponse('请填写 Bucket、Key 和 UploadId', 'warn'); return; }
+    await sendS3Request('GET', '/' + bucket + '/' + key, {}, null, 'uploadId=' + uploadId);
+}
+
+function onMpFileSelected(event) {
+    selectedMultipartFile = event.target.files[0];
+    if (selectedMultipartFile) {
+        document.getElementById('mpUploadZone').querySelector('div').textContent =
+            '已选择: ' + selectedMultipartFile.name + ' (' + (selectedMultipartFile.size / 1024 / 1024).toFixed(2) + ' MB)';
+    }
+}
+
+/** 自动分片上传大文件（完整流程） */
+async function autoMultipartUpload() {
+    if (!selectedMultipartFile) { showResponse('请先选择文件', 'warn'); return; }
+    const bucket = document.getElementById('mpBucket').value;
+    const key = document.getElementById('mpKey').value || selectedMultipartFile.name;
+    const partSizeMB = parseInt(document.getElementById('mpPartSize').value) || 5;
+    const partSize = partSizeMB * 1024 * 1024;
+    if (!bucket) { showResponse('请输入 Bucket 名称', 'warn'); return; }
+    const cfg = getConfig();
+    multipartETags = [];
+    const progressBar = document.getElementById('mpProgress');
+    const progressFill = document.getElementById('mpProgressFill');
+    const statusDiv = document.getElementById('mpStatus');
+    progressBar.style.display = 'block';
+    progressFill.style.width = '0%';
+    try {
+        // Step 1: 初始化
+        statusDiv.textContent = '正在初始化分片上传...';
+        const initUrl = cfg.endpoint + '/' + bucket + '/' + key + '?uploads';
+        let headers = {};
+        await signRequest({ method: 'POST', url: initUrl, headers, accessKey: cfg.accessKey, secretKey: cfg.secretKey, region: cfg.region });
+        let response = await fetch(initUrl, { method: 'POST', headers });
+        let body = await response.text();
+        if (!response.ok) { showResponse('初始化失败:\n' + formatResponse(response, body), 'err'); return; }
+        const uploadIdMatch = body.match(/<UploadId>([^<]+)<\/UploadId>/);
+        if (!uploadIdMatch) { showResponse('无法获取 UploadId', 'err'); return; }
+        const uploadId = uploadIdMatch[1];
+        document.getElementById('mpUploadId').value = uploadId;
+        addLog('UploadId: ' + uploadId, 'ok');
+        // Step 2: 逐片上传
+        const totalParts = Math.ceil(selectedMultipartFile.size / partSize);
+        for (let i = 0; i < totalParts; i++) {
+            const start = i * partSize;
+            const end = Math.min(start + partSize, selectedMultipartFile.size);
+            const partBuffer = await selectedMultipartFile.slice(start, end).arrayBuffer();
+            const partNumber = i + 1;
+            statusDiv.textContent = '上传分片 ' + partNumber + '/' + totalParts + '...';
+            const partUrl = cfg.endpoint + '/' + bucket + '/' + key + '?partNumber=' + partNumber + '&uploadId=' + uploadId;
+            headers = { 'Content-Type': 'application/octet-stream' };
+            await signRequest({ method: 'PUT', url: partUrl, headers, body: partBuffer, accessKey: cfg.accessKey, secretKey: cfg.secretKey, region: cfg.region });
+            response = await fetch(partUrl, { method: 'PUT', headers, body: partBuffer });
+            if (!response.ok) { body = await response.text(); showResponse('分片 ' + partNumber + ' 上传失败', 'err'); return; }
+            const etag = response.headers.get('ETag') || '';
+            multipartETags.push({ partNumber, etag });
+            addLog('Part ' + partNumber + '/' + totalParts + ' ETag: ' + etag, 'ok');
+            progressFill.style.width = ((i + 1) / totalParts * 90) + '%';
+        }
+        // Step 3: 完成
+        statusDiv.textContent = '正在完成分片上传...';
+        let partsXml = '';
+        for (const p of multipartETags) partsXml += '<Part><PartNumber>' + p.partNumber + '</PartNumber><ETag>' + p.etag + '</ETag></Part>';
+        const completeBody = '<?xml version="1.0" encoding="UTF-8"?><CompleteMultipartUpload xmlns="http://s3.amazonaws.com/doc/2006-03-01/">' + partsXml + '</CompleteMultipartUpload>';
+        const completeUrl = cfg.endpoint + '/' + bucket + '/' + key + '?uploadId=' + uploadId;
+        headers = { 'Content-Type': 'application/xml' };
+        await signRequest({ method: 'POST', url: completeUrl, headers, body: completeBody, accessKey: cfg.accessKey, secretKey: cfg.secretKey, region: cfg.region });
+        response = await fetch(completeUrl, { method: 'POST', headers, body: completeBody });
+        body = await response.text();
+        progressFill.style.width = '100%';
+        showResponse(formatResponse(response, body), response.ok ? 'ok' : 'err');
+        addLog('分片上传完成', response.ok ? 'ok' : 'err');
+        statusDiv.textContent = response.ok ? '上传完成!' : '上传失败';
+        setTimeout(() => { progressBar.style.display = 'none'; }, 2000);
+    } catch (err) {
+        showResponse('分片上传失败: ' + err.message, 'err');
+        addLog('分片上传失败: ' + err.message, 'err');
+        statusDiv.textContent = '上传失败';
+    }
+}
+
+// ==================== 批量操作 ====================
+
+/** 批量删除对象 (DeleteMultipleObjects) */
+async function deleteMultipleObjects() {
+    const bucket = document.getElementById('batchBucket').value;
+    const keysText = document.getElementById('batchKeys').value.trim();
+    if (!bucket) { showResponse('请输入 Bucket 名称', 'warn'); return; }
+    if (!keysText) { showResponse('请输入要删除的 Object Keys', 'warn'); return; }
+    if (!confirm('确定要批量删除这些对象吗？')) return;
+    const keys = keysText.split('\n').map(k => k.trim()).filter(k => k); // 按行分割并过滤空行
+    if (keys.length === 0) { showResponse('没有有效的 Key', 'warn'); return; }
+    // 构建 DeleteMultipleObjects XML
+    let objectsXml = '';
+    for (const k of keys) objectsXml += '<Object><Key>' + k + '</Key></Object>';
+    const xml = '<?xml version="1.0" encoding="UTF-8"?><Delete xmlns="http://s3.amazonaws.com/doc/2006-03-01/">' + objectsXml + '<Quiet>false</Quiet></Delete>';
+    await sendS3Request('POST', '/' + bucket, { 'Content-Type': 'application/xml' }, xml, 'delete');
+}
+
+/** 批量创建测试对象 */
+async function batchPutObjects() {
+    const bucket = document.getElementById('batchBucket').value;
+    const count = parseInt(document.getElementById('batchCount').value) || 10;
+    if (!bucket) { showResponse('请输入 Bucket 名称', 'warn'); return; }
+    const cfg = getConfig();
+    showResponse('正在批量创建 ' + count + ' 个对象...', 'info');
+    let success = 0, fail = 0;
+    for (let i = 0; i < count; i++) {
+        const key = 'test-object-' + String(i).padStart(4, '0') + '.txt'; // 生成测试 Key
+        const content = 'Test object #' + i + ' created at ' + new Date().toISOString(); // 测试内容
+        const url = cfg.endpoint + '/' + bucket + '/' + key;
+        const headers = { 'Content-Type': 'text/plain' };
+        try {
+            await signRequest({ method: 'PUT', url, headers, body: content, accessKey: cfg.accessKey, secretKey: cfg.secretKey, region: cfg.region });
+            const response = await fetch(url, { method: 'PUT', headers, body: content });
+            if (response.ok) success++; else fail++;
+        } catch { fail++; }
+    }
+    showResponse('批量创建完成: 成功 ' + success + ', 失败 ' + fail, fail === 0 ? 'ok' : 'warn');
+    addLog('批量创建: 成功 ' + success + ', 失败 ' + fail, fail === 0 ? 'ok' : 'err');
+}
+
+// ==================== 预签名 URL ====================
+
+/** 生成预签名 URL */
+async function generatePresignedUrl() {
+    const bucket = document.getElementById('psBucket').value;
+    const key = document.getElementById('psKey').value;
+    const method = document.getElementById('psMethod').value;
+    const expires = parseInt(document.getElementById('psExpires').value) || 3600;
+    if (!bucket || !key) { showResponse('请输入 Bucket 和 Object Key', 'warn'); return; }
+    const cfg = getConfig();
+    try {
+        const url = await signPresignedUrl({
+            method, endpoint: cfg.endpoint, bucket, key,
+            accessKey: cfg.accessKey, secretKey: cfg.secretKey, region: cfg.region, expires
+        });
+        document.getElementById('presignedUrl').value = url;
+        showResponse('预签名 URL 已生成 (有效期 ' + expires + ' 秒)', 'ok');
+        addLog('预签名 URL 已生成', 'ok');
+    } catch (err) {
+        showResponse('生成失败: ' + err.message, 'err');
+    }
+}
+
+/** 复制预签名 URL */
+function copyPresignedUrl() {
+    const url = document.getElementById('presignedUrl').value;
+    if (!url) { showResponse('请先生成预签名 URL', 'warn'); return; }
+    navigator.clipboard.writeText(url).then(() => addLog('URL 已复制', 'ok'));
+}
+
+/** 在浏览器打开预签名 URL */
+function openPresignedUrl() {
+    const url = document.getElementById('presignedUrl').value;
+    if (!url) { showResponse('请先生成预签名 URL', 'warn'); return; }
+    window.open(url, '_blank');
+}
+
+// ==================== 原始请求 ====================
+
+/** 发送自定义原始请求 */
+async function sendRawRequest() {
+    const method = document.getElementById('rawMethod').value;
+    const path = document.getElementById('rawPath').value;
+    const query = document.getElementById('rawQuery').value.replace(/^\?/, ''); // 去掉开头的 ?
+    const bodyText = document.getElementById('rawBody').value || null;
+    const headersStr = document.getElementById('rawHeaders').value;
+    if (!path) { showResponse('请输入请求路径', 'warn'); return; }
+    // 解析额外请求头
+    let extraHeaders = {};
+    if (headersStr.trim()) {
+        try { extraHeaders = JSON.parse(headersStr); } catch { showResponse('请求头 JSON 格式无效', 'err'); return; }
+    }
+    await sendS3Request(method, path, extraHeaders, bodyText, query);
+}
+
+// ==================== 文件浏览 ====================
+
+/** 当前浏览路径状态 */
+let browserCurrentPrefix = ''; // 当前路径前缀
+
+/** 浏览 Bucket 文件列表 */
+async function browseBucket() {
+    const bucket = document.getElementById('browserBucket').value;
+    if (!bucket) { showResponse('请输入 Bucket 名称', 'warn'); return; }
+    const prefix = document.getElementById('browserPrefix').value;
+    browserCurrentPrefix = prefix;
+    await loadFileList(bucket, prefix);
+}
+
+/** 加载文件列表（解析 ListObjectsV2 XML 响应） */
+async function loadFileList(bucket, prefix) {
+    const cfg = getConfig();
+    // 构建 ListObjectsV2 请求 URL，带 delimiter 和 prefix 参数
+    let url = cfg.endpoint + '/' + bucket + '?list-type=2';
+    if (prefix) url += '&prefix=' + encodeURIComponent(prefix);
+    url += '&delimiter=/'; // 使用 / 分隔符实现目录模拟
+    const headers = {};
+    await signRequest({ method: 'GET', url, headers, accessKey: cfg.accessKey, secretKey: cfg.secretKey, region: cfg.region });
+    addLog('浏览: /' + bucket + '/' + (prefix || ''), 'info');
+    try {
+        const response = await fetch(url, { method: 'GET', headers });
+        if (!response.ok) {
+            const body = await response.text();
+            showResponse(formatResponse(response, body), 'err');
+            return;
+        }
+        const body = await response.text();
+        // 解析 XML 响应
+        const parser = new DOMParser();
+        const xml = parser.parseFromString(body, 'text/xml');
+        // 提取 CommonPrefixes（目录）
+        const dirs = [];
+        xml.querySelectorAll('CommonPrefixes > Prefix').forEach(el => {
+            dirs.push(el.textContent); // 如 "folder/"
+        });
+        // 提取 Contents（文件）
+        const files = [];
+        xml.querySelectorAll('Contents').forEach(el => {
+            const key = el.querySelector('Key')?.textContent || '';
+            const size = parseInt(el.querySelector('Size')?.textContent || '0');
+            const lastModified = el.querySelector('LastModified')?.textContent || '';
+            // 跳过目录标记文件（以 / 结尾且大小为 0 的对象）
+            if (key === prefix) return;
+            files.push({ key, size, lastModified });
+        });
+        renderFileList(bucket, prefix, dirs, files);
+        addLog('列出 ' + dirs.length + ' 个目录, ' + files.length + ' 个文件', 'ok');
+    } catch (err) {
+        showResponse('浏览失败: ' + err.message, 'err');
+    }
+}
+
+/** 渲染文件列表到表格 */
+function renderFileList(bucket, prefix, dirs, files) {
+    const tbody = document.getElementById('browserTableBody');
+    const listDiv = document.getElementById('browserList');
+    const emptyDiv = document.getElementById('browserEmpty');
+    tbody.innerHTML = ''; // 清空现有内容
+    // 渲染面包屑导航
+    renderBreadcrumb(bucket, prefix);
+    // 如果有上级目录，添加返回行
+    if (prefix) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td colspan="4" style="padding:8px;"><span class="file-icon dir-icon">&#128193;</span> ..</td>';
+        tr.onclick = () => browserGoUp(); // 点击返回上级
+        tbody.appendChild(tr);
+    }
+    // 渲染目录行
+    for (const dir of dirs) {
+        const dirName = dir.replace(prefix, '').replace(/\/$/, ''); // 提取目录名
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+            '<td style="padding:8px;"><span class="file-icon dir-icon">&#128193;</span> ' + escapeHtml(dirName) + '/</td>' +
+            '<td style="text-align:right;padding:8px;color:#999;">--</td>' +
+            '<td style="text-align:right;padding:8px;color:#999;">--</td>' +
+            '<td style="text-align:center;padding:8px;"><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();browseDir(\'' + escapeHtml(dir) + '\')">进入</button></td>';
+        tr.onclick = () => browseDir(dir); // 点击行也可进入
+        tbody.appendChild(tr);
+    }
+    // 渲染文件行
+    for (const file of files) {
+        const fileName = file.key.replace(prefix, ''); // 提取文件名
+        const ext = fileName.split('.').pop().toLowerCase(); // 获取文件扩展名
+        const icon = getFileIcon(ext); // 根据扩展名获取图标
+        const sizeStr = formatFileSize(file.size); // 格式化文件大小
+        const dateStr = formatDate(file.lastModified); // 格式化日期
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+            '<td style="padding:8px;">' + icon + ' ' + escapeHtml(fileName) + '</td>' +
+            '<td style="text-align:right;padding:8px;color:#666;">' + sizeStr + '</td>' +
+            '<td style="text-align:right;padding:8px;color:#666;">' + dateStr + '</td>' +
+            '<td style="text-align:center;padding:8px;">' +
+                '<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();previewFile(\'' + escapeHtml(bucket) + '\',\'' + escapeHtml(file.key) + '\',\'' + escapeHtml(ext) + '\')" style="margin-right:4px;">预览</button>' +
+                '<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();downloadFile(\'' + escapeHtml(bucket) + '\',\'' + escapeHtml(file.key) + '\')">下载</button>' +
+            '</td>';
+        tbody.appendChild(tr);
+    }
+    // 显示/隐藏列表和空提示
+    if (dirs.length === 0 && files.length === 0 && !prefix) {
+        listDiv.style.display = 'none';
+        emptyDiv.style.display = 'block';
+    } else {
+        listDiv.style.display = 'block';
+        emptyDiv.style.display = 'none';
+    }
+}
+
+/** 渲染面包屑导航 */
+function renderBreadcrumb(bucket, prefix) {
+    const bc = document.getElementById('browserBreadcrumb');
+    if (!bucket) { bc.style.display = 'none'; return; }
+    bc.style.display = 'block';
+    let html = '<span class="breadcrumb-item" onclick="browseDir(\'\')">' + escapeHtml(bucket) + '</span>';
+    if (prefix) {
+        const parts = prefix.replace(/\/$/, '').split('/');
+        let path = '';
+        for (let i = 0; i < parts.length; i++) {
+            path += parts[i] + '/';
+            html += '<span class="breadcrumb-sep">/</span>';
+            html += '<span class="breadcrumb-item" onclick="browseDir(\'' + escapeHtml(path) + '\')">' + escapeHtml(parts[i]) + '</span>';
+        }
+    }
+    bc.innerHTML = html;
+}
+
+/** 进入子目录 */
+function browseDir(prefix) {
+    document.getElementById('browserPrefix').value = prefix;
+    browserCurrentPrefix = prefix;
+    const bucket = document.getElementById('browserBucket').value;
+    if (bucket) loadFileList(bucket, prefix);
+}
+
+/** 返回上级目录 */
+function browserGoUp() {
+    const prefix = browserCurrentPrefix;
+    if (!prefix) return;
+    // 去掉末尾的 /，再取上一级路径
+    const trimmed = prefix.replace(/\/$/, '');
+    const lastSlash = trimmed.lastIndexOf('/');
+    const parentPrefix = lastSlash >= 0 ? trimmed.substring(0, lastSlash + 1) : '';
+    document.getElementById('browserPrefix').value = parentPrefix;
+    browserCurrentPrefix = parentPrefix;
+    const bucket = document.getElementById('browserBucket').value;
+    if (bucket) loadFileList(bucket, parentPrefix);
+}
+
+/** 根据文件扩展名获取图标 */
+function getFileIcon(ext) {
+    const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'ico', 'tiff', 'tif'];
+    const textExts = ['txt', 'log', 'csv', 'json', 'xml', 'yaml', 'yml', 'md', 'html', 'htm', 'css', 'js', 'ts', 'go', 'py', 'java', 'c', 'cpp', 'h', 'sh', 'bat', 'sql', 'ini', 'cfg', 'conf', 'env'];
+    const audioExts = ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a'];
+    const videoExts = ['mp4', 'webm', 'avi', 'mkv', 'mov', 'wmv'];
+    if (imageExts.includes(ext)) return '<span class="file-icon file-icon-img">&#128444;</span>';
+    if (textExts.includes(ext)) return '<span class="file-icon file-icon-txt">&#128196;</span>';
+    if (audioExts.includes(ext)) return '<span class="file-icon file-icon-other">&#127925;</span>';
+    if (videoExts.includes(ext)) return '<span class="file-icon file-icon-other">&#127916;</span>';
+    return '<span class="file-icon file-icon-other">&#128196;</span>';
+}
+
+/** 格式化文件大小 */
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return (bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
+}
+
+/** 格式化 ISO 日期字符串 */
+function formatDate(isoStr) {
+    if (!isoStr) return '--';
+    try {
+        const d = new Date(isoStr);
+        return d.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    } catch { return isoStr; }
+}
+
+/** 预览文件（图片内联显示，文本显示内容，其他类型显示下载链接） */
+async function previewFile(bucket, key, ext) {
+    const previewDiv = document.getElementById('browserPreview');
+    const contentDiv = document.getElementById('previewContent');
+    previewDiv.style.display = 'block';
+    contentDiv.innerHTML = '<div style="padding:16px;text-align:center;color:#999;">加载中...</div>';
+    const cfg = getConfig();
+    const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'ico'];
+    const textExts = ['txt', 'log', 'csv', 'json', 'xml', 'yaml', 'yml', 'md', 'html', 'htm', 'css', 'js', 'ts', 'go', 'py', 'java', 'c', 'cpp', 'h', 'sh', 'bat', 'sql', 'ini', 'cfg', 'conf', 'env'];
+    const audioExts = ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a'];
+    const videoExts = ['mp4', 'webm', 'avi', 'mkv', 'mov', 'wmv'];
+    // 图片类型：生成预签名 URL 用于 img 标签
+    if (imageExts.includes(ext)) {
+        try {
+            const presignedUrl = await signPresignedUrl({
+                method: 'GET', endpoint: cfg.endpoint, bucket, key,
+                accessKey: cfg.accessKey, secretKey: cfg.secretKey, region: cfg.region, expires: 3600
+            });
+            contentDiv.innerHTML = '<img src="' + presignedUrl + '" class="preview-img" alt="' + escapeHtml(key) + '">';
+        } catch (err) {
+            contentDiv.innerHTML = '<div style="padding:16px;color:#f44336;">预览失败: ' + err.message + '</div>';
+        }
+        return;
+    }
+    // 文本类型：获取内容并显示
+    if (textExts.includes(ext)) {
+        const url = cfg.endpoint + '/' + bucket + '/' + key;
+        const headers = {};
+        await signRequest({ method: 'GET', url, headers, accessKey: cfg.accessKey, secretKey: cfg.secretKey, region: cfg.region });
+        try {
+            const response = await fetch(url, { method: 'GET', headers });
+            if (response.ok) {
+                const text = await response.text();
+                contentDiv.innerHTML = '<pre class="preview-text">' + escapeHtml(text) + '</pre>';
+            } else {
+                contentDiv.innerHTML = '<div style="padding:16px;color:#f44336;">获取失败: HTTP ' + response.status + '</div>';
+            }
+        } catch (err) {
+            contentDiv.innerHTML = '<div style="padding:16px;color:#f44336;">预览失败: ' + err.message + '</div>';
+        }
+        return;
+    }
+    // 音频类型：使用 audio 标签播放
+    if (audioExts.includes(ext)) {
+        try {
+            const presignedUrl = await signPresignedUrl({
+                method: 'GET', endpoint: cfg.endpoint, bucket, key,
+                accessKey: cfg.accessKey, secretKey: cfg.secretKey, region: cfg.region, expires: 3600
+            });
+            contentDiv.innerHTML = '<audio controls class="preview-audio" src="' + presignedUrl + '">浏览器不支持音频播放</audio>';
+        } catch (err) {
+            contentDiv.innerHTML = '<div style="padding:16px;color:#f44336;">预览失败: ' + err.message + '</div>';
+        }
+        return;
+    }
+    // 视频类型：使用 video 标签播放
+    if (videoExts.includes(ext)) {
+        try {
+            const presignedUrl = await signPresignedUrl({
+                method: 'GET', endpoint: cfg.endpoint, bucket, key,
+                accessKey: cfg.accessKey, secretKey: cfg.secretKey, region: cfg.region, expires: 3600
+            });
+            contentDiv.innerHTML = '<video controls class="preview-video" src="' + presignedUrl + '">浏览器不支持视频播放</video>';
+        } catch (err) {
+            contentDiv.innerHTML = '<div style="padding:16px;color:#f44336;">预览失败: ' + err.message + '</div>';
+        }
+        return;
+    }
+    // 其他类型：显示下载链接
+    try {
+        const presignedUrl = await signPresignedUrl({
+            method: 'GET', endpoint: cfg.endpoint, bucket, key,
+            accessKey: cfg.accessKey, secretKey: cfg.secretKey, region: cfg.region, expires: 3600
+        });
+        contentDiv.innerHTML = '<div style="padding:24px;text-align:center;">' +
+            '<div style="font-size:32px;margin-bottom:8px;">&#128196;</div>' +
+            '<div style="margin-bottom:12px;color:#666;">此文件类型不支持在线预览</div>' +
+            '<a href="' + presignedUrl + '" target="_blank" class="btn btn-primary" style="text-decoration:none;">下载文件</a>' +
+            '</div>';
+    } catch (err) {
+        contentDiv.innerHTML = '<div style="padding:16px;color:#f44336;">生成下载链接失败: ' + err.message + '</div>';
+    }
+}
+
+/** 下载文件（通过预签名 URL） */
+async function downloadFile(bucket, key) {
+    const cfg = getConfig();
+    try {
+        const presignedUrl = await signPresignedUrl({
+            method: 'GET', endpoint: cfg.endpoint, bucket, key,
+            accessKey: cfg.accessKey, secretKey: cfg.secretKey, region: cfg.region, expires: 3600
+        });
+        // 使用 fetch + blob 方式下载，避免浏览器直接打开
+        const response = await fetch(presignedUrl);
+        if (!response.ok) { showResponse('下载失败: HTTP ' + response.status, 'err'); return; }
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = key.split('/').pop(); // 使用文件名作为下载文件名
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url); // 释放内存
+        addLog('下载: ' + key, 'ok');
+    } catch (err) {
+        showResponse('下载失败: ' + err.message, 'err');
+    }
+}
+
+/** 关闭预览区域 */
+function closeBrowserPreview() {
+    document.getElementById('browserPreview').style.display = 'none';
+    document.getElementById('previewContent').innerHTML = '';
+}
+
+// ==================== 页面加载时自动加载配置 ====================
+document.addEventListener('DOMContentLoaded', () => {
+    loadConfig(); // 自动加载上次保存的配置
+});
+</script>
+</body>
+</html>

@@ -15,15 +15,16 @@ import (
 )
 
 type ServerManager struct {
-	mu       sync.Mutex
-	server   *http.Server
-	running  bool
-	listen   string
-	prefix   string
-	database *db.DB
-	store    *storage.FileSystem
-	logger   *slog.Logger
-	cfg      *config.Config
+	mu             sync.Mutex
+	server         *http.Server
+	running        bool
+	listen         string
+	prefix         string
+	database       *db.DB
+	store          *storage.FileSystem
+	logger         *slog.Logger
+	cfg            *config.Config
+	autoResizeHook AutoResizeHook // 自动缩放钩子（可选）
 }
 
 func NewServerManager(database *db.DB, store *storage.FileSystem, cfg *config.Config, logger *slog.Logger) *ServerManager {
@@ -35,6 +36,11 @@ func NewServerManager(database *db.DB, store *storage.FileSystem, cfg *config.Co
 		logger:   logger,
 		cfg:      cfg,
 	}
+}
+
+// SetAutoResizeHook 设置自动缩放钩子
+func (m *ServerManager) SetAutoResizeHook(hook AutoResizeHook) {
+	m.autoResizeHook = hook
 }
 
 func (m *ServerManager) IsRunning() bool {
@@ -51,7 +57,7 @@ func (m *ServerManager) Start() error {
 		return fmt.Errorf("webdav server already running")
 	}
 
-	handler := NewHandler(m.database, m.store, m.logger, m.prefix)
+	handler := NewHandler(m.database, m.store, m.logger, m.prefix, m.autoResizeHook)
 
 	m.server = &http.Server{
 		Addr:              m.listen,

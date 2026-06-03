@@ -11,6 +11,7 @@ type Bucket struct {
 	QuotaBytes int64
 	Versioning string // "", "Enabled", "Suspended"
 	StorageDir string // custom storage directory; empty = use global RootDir
+	PublicRead bool   // 是否允许公共读取（无需签名直接访问对象）
 	CreatedAt  time.Time
 }
 
@@ -40,8 +41,8 @@ func (d *DB) CreateBucket(name, storageDir string) (*Bucket, error) {
 
 func (d *DB) GetBucket(name string) (*Bucket, error) {
 	b := &Bucket{}
-	err := d.reader.QueryRow("SELECT id, name, quota_bytes, versioning, storage_dir, created_at FROM buckets WHERE name = ?", name).
-		Scan(&b.ID, &b.Name, &b.QuotaBytes, &b.Versioning, &b.StorageDir, &b.CreatedAt)
+	err := d.reader.QueryRow("SELECT id, name, quota_bytes, versioning, storage_dir, public_read, created_at FROM buckets WHERE name = ?", name).
+		Scan(&b.ID, &b.Name, &b.QuotaBytes, &b.Versioning, &b.StorageDir, &b.PublicRead, &b.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -61,8 +62,8 @@ func (d *DB) GetBucketNameByID(id int64) (string, error) {
 
 func (d *DB) GetBucketByID(id int64) (*Bucket, error) {
 	b := &Bucket{}
-	err := d.reader.QueryRow("SELECT id, name, quota_bytes, versioning, storage_dir, created_at FROM buckets WHERE id = ?", id).
-		Scan(&b.ID, &b.Name, &b.QuotaBytes, &b.Versioning, &b.StorageDir, &b.CreatedAt)
+	err := d.reader.QueryRow("SELECT id, name, quota_bytes, versioning, storage_dir, public_read, created_at FROM buckets WHERE id = ?", id).
+		Scan(&b.ID, &b.Name, &b.QuotaBytes, &b.Versioning, &b.StorageDir, &b.PublicRead, &b.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -70,7 +71,7 @@ func (d *DB) GetBucketByID(id int64) (*Bucket, error) {
 }
 
 func (d *DB) ListBuckets() ([]Bucket, error) {
-	rows, err := d.reader.Query("SELECT id, name, quota_bytes, versioning, storage_dir, created_at FROM buckets ORDER BY name")
+	rows, err := d.reader.Query("SELECT id, name, quota_bytes, versioning, storage_dir, public_read, created_at FROM buckets ORDER BY name")
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +80,7 @@ func (d *DB) ListBuckets() ([]Bucket, error) {
 	var buckets []Bucket
 	for rows.Next() {
 		var b Bucket
-		if err := rows.Scan(&b.ID, &b.Name, &b.QuotaBytes, &b.Versioning, &b.StorageDir, &b.CreatedAt); err != nil {
+		if err := rows.Scan(&b.ID, &b.Name, &b.QuotaBytes, &b.Versioning, &b.StorageDir, &b.PublicRead, &b.CreatedAt); err != nil {
 			return nil, err
 		}
 		buckets = append(buckets, b)
@@ -91,7 +92,7 @@ func (d *DB) ListBucketsByIDs(ids []int64) ([]Bucket, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	query := "SELECT id, name, quota_bytes, versioning, storage_dir, created_at FROM buckets WHERE id IN ("
+	query := "SELECT id, name, quota_bytes, versioning, storage_dir, public_read, created_at FROM buckets WHERE id IN ("
 	args := make([]interface{}, len(ids))
 	for i, id := range ids {
 		if i > 0 {
@@ -111,7 +112,7 @@ func (d *DB) ListBucketsByIDs(ids []int64) ([]Bucket, error) {
 	var buckets []Bucket
 	for rows.Next() {
 		var b Bucket
-		if err := rows.Scan(&b.ID, &b.Name, &b.QuotaBytes, &b.Versioning, &b.StorageDir, &b.CreatedAt); err != nil {
+		if err := rows.Scan(&b.ID, &b.Name, &b.QuotaBytes, &b.Versioning, &b.StorageDir, &b.PublicRead, &b.CreatedAt); err != nil {
 			return nil, err
 		}
 		buckets = append(buckets, b)
@@ -149,6 +150,14 @@ func (d *DB) SetBucketStorageDir(name, storageDir string) error {
 func (d *DB) SetBucketQuota(name string, quotaBytes int64) error {
 	return d.withRetry(func() error {
 		_, err := d.writer.Exec("UPDATE buckets SET quota_bytes = ? WHERE name = ?", quotaBytes, name)
+		return err
+	})
+}
+
+// SetBucketPublicRead 设置 bucket 的公共读取开关，开启后无需签名即可 GET/HEAD 对象
+func (d *DB) SetBucketPublicRead(name string, publicRead bool) error {
+	return d.withRetry(func() error {
+		_, err := d.writer.Exec("UPDATE buckets SET public_read = ? WHERE name = ?", publicRead, name)
 		return err
 	})
 }

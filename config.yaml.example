@@ -5,6 +5,9 @@
 server:
   listen: ":9000"              # Dinlenecek adres ve port
   region: "us-east-1"          # S3 region adi (SigV4 imzalamada kullanilir)
+  cors_origins:                # CORS izin verilen origin'ler ("*" = tumu, "null" = file:// protokolu)
+    - "*"
+    - "null"
   tls:
     enabled: false
     cert_file: ""              # TLS sertifika dosyasi yolu

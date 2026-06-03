@@ -58,6 +58,11 @@ func (p *WebDAVPlugin) Start(deps server.PluginDeps) error {
 
 	s3fs := NewS3FileSystem(p.database, p.store, p.logger)
 
+	// 如果 PluginDeps 中有 Handler 且有 ImageProcessor，设置自动缩放钩子
+	if deps.Handler != nil && deps.Handler.ImageProcessor != nil {
+		s3fs.SetAutoResizeHook(deps.Handler.ImageProcessor)
+	}
+
 	davHandler := &webdav.Handler{
 		Prefix:     p.prefix,
 		FileSystem: s3fs,

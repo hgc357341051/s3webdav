@@ -11,15 +11,43 @@ import (
 
 // ListObjects handles GET /<bucket> (v1 and v2)
 func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
-	cred, ok := h.authenticateRequest(w, r)
-	if !ok {
-		return
-	}
-
 	bucketName, _ := getBucketAndKey(r)
-	bucket, ok := h.checkBucketAccess(w, r, cred, bucketName)
-	if !ok {
-		return
+
+	// 尝试公共读取：当请求无签名且 bucket 开启了 PublicRead 时，允许直接访问
+	var bucket *db.Bucket
+	authHeader := r.Header.Get("Authorization")
+	hasPresigned := r.URL.Query().Get("X-Amz-Algorithm") != ""
+
+	if authHeader == "" && !hasPresigned {
+		// 无签名请求，检查 bucket 是否开启公共读取
+		b, err := h.DB.GetBucket(bucketName)
+		if err != nil {
+			h.Logger.Error("db error", "error", err)
+			s3err.WriteError(w, r, s3err.ErrInternalError)
+			return
+		}
+		if b == nil {
+			s3err.WriteError(w, r, s3err.ErrNoSuchBucket)
+			return
+		}
+		if !b.PublicRead {
+			// bucket 未开启公共读取，需要认证
+			s3err.WriteError(w, r, s3err.ErrAccessDenied)
+			return
+		}
+		// 公共读取模式，不需要凭证
+		bucket = b
+	} else {
+		// 有签名请求，走正常认证流程
+		cred, ok := h.authenticateRequest(w, r)
+		if !ok {
+			return
+		}
+		var accessOk bool
+		bucket, accessOk = h.checkBucketAccess(w, r, cred, bucketName)
+		if !accessOk {
+			return
+		}
 	}
 
 	query := r.URL.Query()

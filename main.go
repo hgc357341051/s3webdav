@@ -9,14 +9,14 @@ import (
 
 	"github.com/onaonbir/Cloodsy-S3/admin"
 	"github.com/onaonbir/Cloodsy-S3/cli"
-	applogger "github.com/onaonbir/Cloodsy-S3/logger"
 	"github.com/onaonbir/Cloodsy-S3/config"
 	"github.com/onaonbir/Cloodsy-S3/db"
 	"github.com/onaonbir/Cloodsy-S3/handler"
-	"github.com/pterm/pterm"
+	applogger "github.com/onaonbir/Cloodsy-S3/logger"
 	"github.com/onaonbir/Cloodsy-S3/server"
 	"github.com/onaonbir/Cloodsy-S3/storage"
 	wd "github.com/onaonbir/Cloodsy-S3/webdav"
+	"github.com/pterm/pterm"
 )
 
 // Build-time variables (injected via -ldflags)
@@ -209,6 +209,11 @@ func runServe() {
 	// Initialize WebDAV server manager
 	webdavManager := wd.NewServerManager(database, store, cfg, logger)
 
+	// 如果启用了自动缩放，将 ImageProcessor 注入到 WebDAV 管理器
+	if h.ImageProcessor != nil {
+		webdavManager.SetAutoResizeHook(h.ImageProcessor)
+	}
+
 	// Start admin API if enabled
 	if cfg.Admin.Enabled {
 		adminHandler := admin.New(database, store, cfg, logger)
@@ -242,7 +247,7 @@ func runServe() {
 
 func runBucket() {
 	if len(os.Args) < 3 {
-		pterm.Info.Println( "Usage: cloodsys3 bucket <create|list|delete|info> [name]")
+		pterm.Info.Println("Usage: cloodsys3 bucket <create|list|delete|info> [name]")
 		os.Exit(1)
 	}
 
@@ -256,7 +261,7 @@ func runBucket() {
 	switch subcommand {
 	case "create":
 		if len(os.Args) < 4 {
-			pterm.Info.Println( "Usage: cloodsys3 bucket create <name> [--storage-dir=<path>]")
+			pterm.Info.Println("Usage: cloodsys3 bucket create <name> [--storage-dir=<path>]")
 			os.Exit(1)
 		}
 		storageDir := getFlag(os.Args[4:], "--storage-dir")
@@ -265,39 +270,39 @@ func runBucket() {
 		err = cli.RunBucketList(database)
 	case "delete":
 		if len(os.Args) < 4 {
-			pterm.Info.Println( "Usage: cloodsys3 bucket delete <name>")
+			pterm.Info.Println("Usage: cloodsys3 bucket delete <name>")
 			os.Exit(1)
 		}
 		err = cli.RunBucketDelete(database, os.Args[3], cfg.Storage.RootDir)
 	case "info":
 		if len(os.Args) < 4 {
-			pterm.Info.Println( "Usage: cloodsys3 bucket info <name>")
+			pterm.Info.Println("Usage: cloodsys3 bucket info <name>")
 			os.Exit(1)
 		}
 		err = cli.RunBucketInfo(database, os.Args[3], cfg.Storage.RootDir)
 	case "storage":
 		if len(os.Args) < 4 {
-			pterm.Info.Println( "Usage: cloodsys3 bucket storage <name> --dir=<path>")
-			pterm.Info.Println( "  Moves data and updates storage location. Use --dir= (empty) to reset to default.")
+			pterm.Info.Println("Usage: cloodsys3 bucket storage <name> --dir=<path>")
+			pterm.Info.Println("  Moves data and updates storage location. Use --dir= (empty) to reset to default.")
 			os.Exit(1)
 		}
 		dir := getFlag(os.Args[4:], "--dir")
 		err = cli.RunBucketStorageDir(database, os.Args[3], cfg.Storage.RootDir, dir)
 	case "quota":
 		if len(os.Args) < 5 {
-			pterm.Info.Println( "Usage: cloodsys3 bucket quota <name> <size>")
-			pterm.Info.Println( "  size: 10GB, 500MB, 1TB, 0 (unlimited)")
+			pterm.Info.Println("Usage: cloodsys3 bucket quota <name> <size>")
+			pterm.Info.Println("  size: 10GB, 500MB, 1TB, 0 (unlimited)")
 			os.Exit(1)
 		}
 		err = cli.RunBucketQuota(database, os.Args[3], os.Args[4])
 	case "versioning":
 		if len(os.Args) < 4 {
-			pterm.Info.Println( "Usage: cloodsys3 bucket versioning <enable|suspend|status> <name>")
+			pterm.Info.Println("Usage: cloodsys3 bucket versioning <enable|suspend|status> <name>")
 			os.Exit(1)
 		}
 		action := os.Args[3]
 		if len(os.Args) < 5 {
-			pterm.Info.Println( "Usage: cloodsys3 bucket versioning <enable|suspend|status> <name>")
+			pterm.Info.Println("Usage: cloodsys3 bucket versioning <enable|suspend|status> <name>")
 			os.Exit(1)
 		}
 		name := os.Args[4]
@@ -314,12 +319,12 @@ func runBucket() {
 		}
 	case "lifecycle":
 		if len(os.Args) < 4 {
-			pterm.Info.Println( "Usage: cloodsys3 bucket lifecycle <set|get|delete> <name> [options]")
+			pterm.Info.Println("Usage: cloodsys3 bucket lifecycle <set|get|delete> <name> [options]")
 			os.Exit(1)
 		}
 		action := os.Args[3]
 		if len(os.Args) < 5 {
-			pterm.Info.Println( "Usage: cloodsys3 bucket lifecycle <set|get|delete> <name> [options]")
+			pterm.Info.Println("Usage: cloodsys3 bucket lifecycle <set|get|delete> <name> [options]")
 			os.Exit(1)
 		}
 		name := os.Args[4]
@@ -328,7 +333,7 @@ func runBucket() {
 			prefix := getFlag(os.Args[5:], "--prefix")
 			daysStr := getFlag(os.Args[5:], "--days")
 			if daysStr == "" {
-				pterm.Info.Println( "Usage: cloodsys3 bucket lifecycle set <name> --days=<N> [--prefix=<prefix>]")
+				pterm.Info.Println("Usage: cloodsys3 bucket lifecycle set <name> --days=<N> [--prefix=<prefix>]")
 				os.Exit(1)
 			}
 			days, parseErr := strconv.Atoi(daysStr)
@@ -348,12 +353,12 @@ func runBucket() {
 		}
 	case "webhook":
 		if len(os.Args) < 4 {
-			pterm.Info.Println( "Usage: cloodsys3 bucket webhook <add|list|delete> <name> [options]")
+			pterm.Info.Println("Usage: cloodsys3 bucket webhook <add|list|delete> <name> [options]")
 			os.Exit(1)
 		}
 		action := os.Args[3]
 		if len(os.Args) < 5 {
-			pterm.Info.Println( "Usage: cloodsys3 bucket webhook <add|list|delete> <name> [options]")
+			pterm.Info.Println("Usage: cloodsys3 bucket webhook <add|list|delete> <name> [options]")
 			os.Exit(1)
 		}
 		name := os.Args[4]
@@ -363,7 +368,7 @@ func runBucket() {
 			events := getFlag(os.Args[5:], "--events")
 			secret := getFlag(os.Args[5:], "--secret")
 			if url == "" {
-				pterm.Info.Println( "Usage: cloodsys3 bucket webhook add <name> --url=<url> [--events=<events>] [--secret=<secret>]")
+				pterm.Info.Println("Usage: cloodsys3 bucket webhook add <name> --url=<url> [--events=<events>] [--secret=<secret>]")
 				os.Exit(1)
 			}
 			err = cli.RunBucketWebhookAdd(database, name, url, events, secret)
@@ -372,7 +377,7 @@ func runBucket() {
 		case "delete":
 			idStr := getFlag(os.Args[5:], "--id")
 			if idStr == "" {
-				pterm.Info.Println( "Usage: cloodsys3 bucket webhook delete <name> --id=<id>")
+				pterm.Info.Println("Usage: cloodsys3 bucket webhook delete <name> --id=<id>")
 				os.Exit(1)
 			}
 			id, parseErr := strconv.ParseInt(idStr, 10, 64)
@@ -383,6 +388,24 @@ func runBucket() {
 			err = cli.RunBucketWebhookDelete(database, name, id)
 		default:
 			pterm.Error.Printfln("Unknown webhook action: %s\n", action)
+			os.Exit(1)
+		}
+	case "public":
+		// 设置 bucket 公共读取开关：开启后无需签名即可 GET/HEAD 对象
+		if len(os.Args) < 5 {
+			pterm.Info.Println("Usage: cloodsys3 bucket public <name> <on|off>")
+			pterm.Info.Println("  on  - 允许匿名读取对象（无需签名直接访问）")
+			pterm.Info.Println("  off - 需要签名才能访问对象（默认）")
+			os.Exit(1)
+		}
+		name := os.Args[3]
+		switch os.Args[4] {
+		case "on":
+			err = cli.RunBucketPublicRead(database, name, true)
+		case "off":
+			err = cli.RunBucketPublicRead(database, name, false)
+		default:
+			pterm.Error.Printfln("Unknown public option: %s (use 'on' or 'off')\n", os.Args[4])
 			os.Exit(1)
 		}
 	default:
@@ -398,7 +421,7 @@ func runBucket() {
 
 func runCredential() {
 	if len(os.Args) < 3 {
-		pterm.Info.Println( "Usage: cloodsys3 credential <create|list|delete> [bucket|key]")
+		pterm.Info.Println("Usage: cloodsys3 credential <create|list|delete> [bucket|key]")
 		os.Exit(1)
 	}
 
@@ -412,7 +435,7 @@ func runCredential() {
 	switch subcommand {
 	case "create":
 		if len(os.Args) < 4 {
-			pterm.Info.Println( "Usage: cloodsys3 credential create <bucket-name> [--read-only]")
+			pterm.Info.Println("Usage: cloodsys3 credential create <bucket-name> [--read-only]")
 			os.Exit(1)
 		}
 		readOnly := false
@@ -424,13 +447,13 @@ func runCredential() {
 		err = cli.RunCredentialCreate(database, os.Args[3], readOnly)
 	case "list":
 		if len(os.Args) < 4 {
-			pterm.Info.Println( "Usage: cloodsys3 credential list <bucket-name>")
+			pterm.Info.Println("Usage: cloodsys3 credential list <bucket-name>")
 			os.Exit(1)
 		}
 		err = cli.RunCredentialList(database, os.Args[3])
 	case "delete":
 		if len(os.Args) < 4 {
-			pterm.Info.Println( "Usage: cloodsys3 credential delete <access-key>")
+			pterm.Info.Println("Usage: cloodsys3 credential delete <access-key>")
 			os.Exit(1)
 		}
 		err = cli.RunCredentialDelete(database, os.Args[3])
@@ -447,7 +470,7 @@ func runCredential() {
 
 func runAdmin() {
 	if len(os.Args) < 3 {
-		pterm.Info.Println( "Usage: cloodsys3 admin <create|list|delete> [username]")
+		pterm.Info.Println("Usage: cloodsys3 admin <create|list|delete> [username]")
 		os.Exit(1)
 	}
 
@@ -461,7 +484,7 @@ func runAdmin() {
 	switch subcommand {
 	case "create":
 		if len(os.Args) < 4 {
-			pterm.Info.Println( "Usage: cloodsys3 admin create <username> [--password=<password>]")
+			pterm.Info.Println("Usage: cloodsys3 admin create <username> [--password=<password>]")
 			os.Exit(1)
 		}
 		password := getFlag(os.Args[4:], "--password")
@@ -470,13 +493,13 @@ func runAdmin() {
 		err = cli.RunAdminList(database)
 	case "delete":
 		if len(os.Args) < 4 {
-			pterm.Info.Println( "Usage: cloodsys3 admin delete <username>")
+			pterm.Info.Println("Usage: cloodsys3 admin delete <username>")
 			os.Exit(1)
 		}
 		err = cli.RunAdminDelete(database, os.Args[3])
 	case "password":
 		if len(os.Args) < 4 {
-			pterm.Info.Println( "Usage: cloodsys3 admin password <username> [--password=<password>]")
+			pterm.Info.Println("Usage: cloodsys3 admin password <username> [--password=<password>]")
 			os.Exit(1)
 		}
 		password := getFlag(os.Args[4:], "--password")

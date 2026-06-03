@@ -251,6 +251,7 @@ func RunBucketInfo(database *db.DB, name, storageRoot string) error {
 		{Level: 0, Text: pterm.Gray("Objects:     ") + fmt.Sprintf("%d", objCount)},
 		{Level: 0, Text: pterm.Gray("Usage:       ") + formatBytes(usage)},
 		{Level: 0, Text: pterm.Gray("Quota:       ") + quotaStr},
+		{Level: 0, Text: pterm.Gray("Public Read: ") + fmt.Sprintf("%v", bucket.PublicRead)},
 		{Level: 0, Text: pterm.Gray("Credentials: ") + fmt.Sprintf("%d", len(creds))},
 	}
 	pterm.DefaultBulletList.WithItems(bulletItems).Render()
@@ -289,6 +290,28 @@ func RunBucketQuota(database *db.DB, name, sizeStr string) error {
 		pterm.Success.Printfln("Quota removed for bucket '%s'.", name)
 	} else {
 		pterm.Success.Printfln("Quota set for bucket '%s': %s", name, formatBytes(quotaBytes))
+	}
+	return nil
+}
+
+// RunBucketPublicRead 设置 bucket 的公共读取开关
+func RunBucketPublicRead(database *db.DB, name string, publicRead bool) error {
+	// 检查 bucket 是否存在
+	bucket, err := database.GetBucket(name)
+	if err != nil {
+		return fmt.Errorf("get bucket: %w", err)
+	}
+	if bucket == nil {
+		return fmt.Errorf("bucket '%s' not found", name)
+	}
+	// 更新公共读取设置
+	if err := database.SetBucketPublicRead(name, publicRead); err != nil {
+		return fmt.Errorf("set public read: %w", err)
+	}
+	if publicRead {
+		pterm.Success.Printfln("Bucket '%s' public read: ENABLED (objects accessible without signature)", name)
+	} else {
+		pterm.Success.Printfln("Bucket '%s' public read: DISABLED (signature required)", name)
 	}
 	return nil
 }

@@ -47,10 +47,12 @@ func (sr *s3Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// CORS support — only for configured origins
+	// "null" origin 代表 file:// 协议打开的本地 HTML 页面，也需要支持
 	if origin := r.Header.Get("Origin"); origin != "" {
 		allowed := false
 		for _, o := range sr.handler.Config.Server.CORSOrigins {
-			if o == "*" || o == origin {
+			// "*" 通配符允许所有来源；"null" 专门允许 file:// 协议的本地页面
+			if o == "*" || o == origin || (o == "null" && origin == "null") {
 				allowed = true
 				break
 			}

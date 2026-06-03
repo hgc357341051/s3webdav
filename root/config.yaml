@@ -5,6 +5,9 @@
 server:
   listen: ":9000"              # Dinlenecek adres ve port
   region: "us-east-1"          # S3 region adi (SigV4 imzalamada kullanilir)
+  cors_origins:                # CORS izin verilen origin'ler ("*" = tumu, "null" = file:// protokolu)
+    - "*"
+    - "null"
   tls:
     enabled: false
     cert_file: ""              # TLS sertifika dosyasi yolu
@@ -36,3 +39,16 @@ webdav:
   enabled: true               # WebDAV servisini etkinlestir (Win10 disk esleme destekler)
   listen: ":9002"              # WebDAV portu (S3/Admin API'den ayri)
   prefix: "/"                  # WebDAV URL on eki
+
+# 图片缩放安全限制配置
+image_resize:
+  max_width: 4096              # 输出图片最大宽度（像素），防止超大尺寸导致内存爆炸
+  max_height: 4096             # 输出图片最大高度（像素）
+  max_upscale: 2               # 最大放大倍数（相对原图），例如原图100x100最多放大到200x200
+  max_concurrent: 4            # 最大并发缩放数，防止大量并发请求耗尽内存
+  # 自动缩放配置：上传大图时自动异步缩放替换原图
+  auto_resize_enabled: false   # 是否启用上传自动缩放（设为 true 启用）
+  auto_resize_min_size: "5MB"  # 触发自动缩放的最小文件大小（支持 KB/MB/GB）
+  auto_resize_target_w: 1920   # 自动缩放目标最大宽度（像素），只缩小不放大
+  auto_resize_target_h: 0      # 自动缩放目标最大高度（0=不限制高度，设为1920则宽高都不超过1920）
+  auto_resize_quality: 85      # 自动缩放 JPEG 输出质量（1-100）

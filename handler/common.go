@@ -22,16 +22,16 @@ import (
 
 // Limits
 const (
-	maxObjectSize    int64 = 5 * 1024 * 1024 * 1024 // 5 GB per PutObject
-	maxPartSize      int64 = 5 * 1024 * 1024 * 1024 // 5 GB per part
-	maxMultipartSize int64 = 5 * 1024 * 1024 * 1024 * 1024 // 5 TB max assembled multipart
-	maxXMLBodySize   int64 = 1 * 1024 * 1024        // 1 MB for XML request bodies
-	maxDeleteObjects       = 1000                    // S3 limit for batch delete
-	maxMetadataSize        = 2048                    // 2 KB total metadata per S3 spec
-	maxMetadataKeyLen      = 128                     // Max metadata key length
-	maxMetadataValLen      = 256                     // Max metadata value length
-	maxChunkSize     int64 = 5 * 1024 * 1024 * 1024 // Max chunk size in aws-chunked
-	maxParts               = 10000                   // S3 max parts per multipart upload
+	maxObjectSize     int64 = 5 * 1024 * 1024 * 1024        // 5 GB per PutObject
+	maxPartSize       int64 = 5 * 1024 * 1024 * 1024        // 5 GB per part
+	maxMultipartSize  int64 = 5 * 1024 * 1024 * 1024 * 1024 // 5 TB max assembled multipart
+	maxXMLBodySize    int64 = 1 * 1024 * 1024               // 1 MB for XML request bodies
+	maxDeleteObjects        = 1000                          // S3 limit for batch delete
+	maxMetadataSize         = 2048                          // 2 KB total metadata per S3 spec
+	maxMetadataKeyLen       = 128                           // Max metadata key length
+	maxMetadataValLen       = 256                           // Max metadata value length
+	maxChunkSize      int64 = 5 * 1024 * 1024 * 1024        // Max chunk size in aws-chunked
+	maxParts                = 10000                         // S3 max parts per multipart upload
 )
 
 // validBucketName matches S3 bucket naming rules: 3-63 chars, lowercase alphanumeric + hyphens, no leading/trailing hyphens.
@@ -39,20 +39,27 @@ var validBucketName = regexp.MustCompile(`^[a-z0-9][a-z0-9\-]{1,61}[a-z0-9]$`)
 
 // Handler holds shared dependencies for all S3 handlers.
 type Handler struct {
-	DB         *db.DB
-	Storage    storage.Backend
-	Config     *config.Config
-	Logger     *slog.Logger
-	Dispatcher *webhook.Dispatcher
+	DB             *db.DB
+	Storage        storage.Backend
+	Config         *config.Config
+	Logger         *slog.Logger
+	Dispatcher     *webhook.Dispatcher
+	ImageProcessor *ImageProcessor // 异步图片自动缩放处理器
 }
 
 func New(database *db.DB, store storage.Backend, cfg *config.Config, logger *slog.Logger) *Handler {
-	return &Handler{
+	h := &Handler{
 		DB:      database,
 		Storage: store,
 		Config:  cfg,
 		Logger:  logger,
 	}
+	// 如果启用了自动缩放，创建并启动图片处理器
+	if cfg.ImageResize.AutoResizeEnabled {
+		h.ImageProcessor = NewImageProcessor(&cfg.ImageResize, database, store, logger)
+		h.ImageProcessor.Start()
+	}
+	return h
 }
 
 // writeXML writes an XML response with the given status code.
@@ -136,10 +143,10 @@ func (h *Handler) authenticateRequest(w http.ResponseWriter, r *http.Request) (*
 	// Verify signature
 	if err := auth.VerifySignature(r, cred.SecretKey, h.Config.Server.Region); err != nil {
 		maskedKey := parsed.AccessKey
-	if len(maskedKey) > 6 {
-		maskedKey = maskedKey[:6] + "***"
-	}
-	h.Logger.Debug("signature verification failed", "error", err, "accessKey", maskedKey)
+		if len(maskedKey) > 6 {
+			maskedKey = maskedKey[:6] + "***"
+		}
+		h.Logger.Debug("signature verification failed", "error", err, "accessKey", maskedKey)
 		s3err.WriteError(w, r, s3err.ErrSignatureDoesNotMatch)
 		return nil, false
 	}
