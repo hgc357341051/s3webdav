@@ -24,11 +24,12 @@ type ImageResizeConfig struct {
 	MaxConcurrent int `yaml:"max_concurrent"` // 最大并发缩放数，默认 4（防止内存爆满）
 
 	// 自动缩放配置：上传大图时自动异步缩放替换原图
-	AutoResizeEnabled bool   `yaml:"auto_resize_enabled"`  // 是否启用上传自动缩放，默认 false
-	AutoResizeMinSize string `yaml:"auto_resize_min_size"` // 触发自动缩放的最小文件大小，默认 "5MB"
-	AutoResizeTargetW int    `yaml:"auto_resize_target_w"` // 自动缩放目标宽度（0=不限制），默认 1920
-	AutoResizeTargetH int    `yaml:"auto_resize_target_h"` // 自动缩放目标高度（0=不限制），默认 0（按宽度等比例）
-	AutoResizeQuality int    `yaml:"auto_resize_quality"`  // 自动缩放 JPEG 质量，默认 85
+	AutoResizeEnabled    bool   `yaml:"auto_resize_enabled"`     // 是否启用上传自动缩放，默认 false
+	AutoResizeMinSize    string `yaml:"auto_resize_min_size"`    // 触发自动缩放的最小文件大小，默认 "5MB"
+	AutoResizeTargetW    int    `yaml:"auto_resize_target_w"`    // 自动缩放目标宽度（0=不限制），默认 1920
+	AutoResizeTargetH    int    `yaml:"auto_resize_target_h"`    // 自动缩放目标高度（0=不限制），默认 0（按宽度等比例）
+	AutoResizeTargetSize string `yaml:"auto_resize_target_size"` // 自动缩放目标文件大小（如 "2MB"），0=不限制，默认 "0"
+	AutoResizeQuality    int    `yaml:"auto_resize_quality"`     // 自动缩放 JPEG 初始质量，默认 85（二分法会自动降低）
 }
 
 type WebDAVConfig struct {
@@ -99,15 +100,16 @@ func Default() *Config {
 			Format: "text",
 		},
 		ImageResize: ImageResizeConfig{
-			MaxWidth:          4096,  // 输出图片最大宽度 4096px
-			MaxHeight:         4096,  // 输出图片最大高度 4096px
-			MaxUpscale:        2,     // 最多放大到原图 2 倍
-			MaxConcurrent:     4,     // 最多 4 个并发缩放
-			AutoResizeEnabled: false, // 默认关闭自动缩放
-			AutoResizeMinSize: "5MB", // 5MB 以上触发
-			AutoResizeTargetW: 1920,  // 目标宽度 1920px
-			AutoResizeTargetH: 0,     // 高度按比例自动计算
-			AutoResizeQuality: 85,    // JPEG 质量 85
+			MaxWidth:            4096,  // 输出图片最大宽度 4096px
+			MaxHeight:           4096,  // 输出图片最大高度 4096px
+			MaxUpscale:          2,     // 最多放大到原图 2 倍
+			MaxConcurrent:       4,     // 最多 4 个并发缩放
+			AutoResizeEnabled:   false, // 默认关闭自动缩放
+			AutoResizeMinSize:   "5MB", // 5MB 以上触发
+			AutoResizeTargetW:   1920,  // 目标宽度 1920px
+			AutoResizeTargetH:   0,     // 高度按比例自动计算
+			AutoResizeTargetSize: "0",  // 不限制目标文件大小
+			AutoResizeQuality:   85,    // JPEG 初始质量 85
 		},
 	}
 }

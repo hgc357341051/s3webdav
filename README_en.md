@@ -445,11 +445,12 @@ image_resize:
   max_height: 4096            # Max output height (px)
   max_upscale: 2              # Max upscale factor relative to original
   max_concurrent: 4           # Max concurrent resize operations
-  auto_resize_enabled: false  # Auto-resize large images on upload
-  auto_resize_min_size: "5MB" # File size threshold to trigger auto-resize (KB/MB/GB)
-  auto_resize_target_w: 1920  # Target max width (px), only shrink never enlarge
-  auto_resize_target_h: 0     # Target max height (0=no height limit, set to 1920 to limit both)
-  auto_resize_quality: 85     # JPEG output quality (1-100)
+  auto_resize_enabled: false    # Auto-resize large images on upload
+  auto_resize_min_size: "5MB"   # File size threshold to trigger auto-resize (KB/MB/GB)
+  auto_resize_target_w: 1920    # Target max width (px), only shrink never enlarge
+  auto_resize_target_h: 0       # Target max height (0=no height limit, set to 1920 to limit both)
+  auto_resize_target_size: "0"  # Target file size (KB/MB/GB, 0=no limit)
+  auto_resize_quality: 85       # Initial JPEG quality (1-100), binary search will reduce if needed
 ```
 
 ## Install
@@ -622,22 +623,39 @@ When enabled, large images uploaded via S3 PutObject or WebDAV are automatically
 
 ```yaml
 image_resize:
-  auto_resize_enabled: true   # Enable auto-resize
-  auto_resize_min_size: "5MB" # Only resize images larger than 5MB
-  auto_resize_target_w: 1920  # Target max width
-  auto_resize_target_h: 0     # 0 = no height limit
-  auto_resize_quality: 85     # JPEG quality
+  auto_resize_enabled: true      # Enable auto-resize
+  auto_resize_min_size: "5MB"    # Only resize images larger than 5MB
+  auto_resize_target_w: 1920     # Target max width
+  auto_resize_target_h: 0        # 0 = no height limit
+  auto_resize_target_size: "2MB" # Target file size (0=no limit)
+  auto_resize_quality: 85        # Initial JPEG quality (binary search will reduce if needed)
 ```
 
 **How it works:**
 1. File uploaded via S3 API or WebDAV
 2. If the file is an image and exceeds `auto_resize_min_size`, a resize task is queued
 3. Background workers (up to `max_concurrent`) process the queue asynchronously
-4. Original file is replaced with the resized version
-5. If the resized file is larger than the original (e.g., PNG), the original is kept
+4. **First resize by dimensions** (if width/height exceeds limits), **then compress to target file size**
+5. Original file is replaced with the resized version
+6. If the resized file is larger than the original (e.g., PNG), the original is kept
+
+**Target File Size Compression (Binary Search):**
+
+When `auto_resize_target_size` is set (e.g., `"2MB"`), the system automatically reduces JPEG quality until the file size meets the target:
+- First encodes at `auto_resize_quality` (default 85); if already within target, returns immediately
+- If over target, uses **binary search** between [10, 85] to find the optimal quality (max 10 iterations)
+- Returns the **highest quality** that meets the file size target — best balance between size and visual quality
+- This is the same approach used by WeChat/WhatsApp/TinyPNG
+- PNG/GIF and other lossless formats are automatically converted to JPEG for compression
+
+**Example:** A 900×7715 tall image (3.4MB) with `target_w=1920, target_size=2MB`:
+- Width 900 < 1920, no dimension resize needed
+- But file size 3.4MB > 2MB, triggers binary search quality compression
+- System automatically reduces from quality 85, finding the highest quality that fits ≤2MB
 
 **Key behaviors:**
 - **Only shrinks, never enlarges** — A 750×1920 image with `target_w=1920` will NOT be resized (width already ≤ 1920)
+- **Target file size takes priority** — Even if dimensions are within limits, file size over target triggers compression
 - **Non-blocking** — Upload returns immediately; resize happens in the background
 - **Queue overflow** — If the resize queue is full, tasks are dropped (uploads are never blocked)
 - **Content-Type detection** — WebDAV uploads with `application/octet-stream` are auto-detected by file extension

@@ -47,8 +47,11 @@ image_resize:
   max_upscale: 2               # 最大放大倍数（相对原图），例如原图100x100最多放大到200x200
   max_concurrent: 4            # 最大并发缩放数，防止大量并发请求耗尽内存
   # 自动缩放配置：上传大图时自动异步缩放替换原图
-  auto_resize_enabled: false   # 是否启用上传自动缩放（设为 true 启用）
-  auto_resize_min_size: "5MB"  # 触发自动缩放的最小文件大小（支持 KB/MB/GB）
-  auto_resize_target_w: 1920   # 自动缩放目标最大宽度（像素），只缩小不放大
-  auto_resize_target_h: 0      # 自动缩放目标最大高度（0=不限制高度，设为1920则宽高都不超过1920）
-  auto_resize_quality: 85      # 自动缩放 JPEG 输出质量（1-100）
+  auto_resize_enabled: false    # 是否启用上传自动缩放（设为 true 启用）
+  auto_resize_min_size: "2MB"   # 触发自动缩放的最小文件大小（支持 KB/MB/GB）
+  auto_resize_target_w: 1920    # 自动缩放目标最大宽度（像素），只缩小不放大
+  auto_resize_target_h: 0       # 自动缩放目标最大高度（0=不限制高度，设为1920则宽高都不超过1920）
+  auto_resize_target_size: "2MB" # 自动缩放目标文件大小（支持 KB/MB/GB，0=不限制）
+                                 # 启用后使用二分法自动降低JPEG质量，直到文件大小达标
+                                 # 例如设为 "2MB"，则压缩后文件不超过2MB，质量自动调整
+  auto_resize_quality: 85       # 自动缩放 JPEG 初始质量（1-100），二分法会从此质量开始降低

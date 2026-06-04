@@ -5,8 +5,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
-	"image/jpeg"
-	"image/png"
+	"image"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -15,6 +14,8 @@ import (
 
 	// gif 编解码支持
 	_ "image/gif"
+	"image/jpeg"
+
 	// jpeg 编解码支持
 	_ "image/jpeg"
 	// png 编解码支持
@@ -32,9 +33,10 @@ type AutoResizeTask struct {
 	Key         string    // 对象 key
 	ContentType string    // 图片内容类型
 	Size        int64     // 原始文件大小
-	Quality     int       // 目标 JPEG 质量
+	Quality     int       // 初始 JPEG 质量（二分法会自动降低）
 	TargetW     int       // 目标宽度（0=不限制）
 	TargetH     int       // 目标高度（0=不限制）
+	TargetSize  int64     // 目标文件大小字节数（0=不限制）
 	SubmittedAt time.Time // 任务提交时间
 }
 
@@ -139,6 +141,8 @@ func (p *ImageProcessor) worker(id int) {
 }
 
 // processTask 处理单个自动缩放任务
+// 策略：先按尺寸缩放，再按目标文件大小二分法降低质量
+// 这是微信/WhatsApp/TinyPNG 等主流图片压缩服务的通用做法
 func (p *ImageProcessor) processTask(workerID int, task AutoResizeTask) {
 	start := time.Now()
 	p.logger.Info("auto-resize processing",
@@ -146,6 +150,7 @@ func (p *ImageProcessor) processTask(workerID int, task AutoResizeTask) {
 		"bucket", task.BucketName,
 		"key", task.Key,
 		"size", task.Size,
+		"target_size", task.TargetSize,
 	)
 
 	// 第一步：从存储读取原始图片
@@ -163,58 +168,57 @@ func (p *ImageProcessor) processTask(workerID int, task AutoResizeTask) {
 		return
 	}
 
-	// 第三步：计算缩放尺寸
+	// 记录原始尺寸
 	srcBounds := srcImg.Bounds()
 	srcW := srcBounds.Dx() // 原始宽度
 	srcH := srcBounds.Dy() // 原始高度
 
-	// 计算等比例缩放的目标尺寸（只缩小不放大）
-	dstW, dstH, needResize := calcAutoResizeSize(srcW, srcH, task.TargetW, task.TargetH)
-	if !needResize {
-		// 原图已经在目标范围内，不需要缩放
-		p.logger.Info("auto-resize: image already within target size, skipping",
+	// 第三步：按尺寸缩放（只缩小不放大）
+	var workImg = srcImg // 工作图片，初始为原图
+	dstW, dstH := srcW, srcH
+
+	needDimResize, resizeW, resizeH := calcAutoResizeDims(srcW, srcH, task.TargetW, task.TargetH)
+	if needDimResize {
+		// 执行尺寸缩放（Fit 等比例适应，Lanczos 高质量重采样）
+		workImg = imaging.Fit(srcImg, resizeW, resizeH, imaging.Lanczos)
+		workBounds := workImg.Bounds()
+		dstW = workBounds.Dx()
+		dstH = workBounds.Dy()
+		p.logger.Info("auto-resize: dimension resize applied",
+			"key", task.Key,
+			"src", fmt.Sprintf("%dx%d", srcW, srcH),
+			"dst", fmt.Sprintf("%dx%d", dstW, dstH),
+		)
+	} else {
+		p.logger.Info("auto-resize: no dimension resize needed",
+			"key", task.Key,
+			"src", fmt.Sprintf("%dx%d", srcW, srcH),
+			"target_w", task.TargetW,
+			"target_h", task.TargetH,
+		)
+	}
+
+	// 如果既不需要尺寸缩放，也没有目标文件大小限制，则跳过
+	if !needDimResize && task.TargetSize <= 0 {
+		p.logger.Info("auto-resize: image within all targets, skipping",
 			"key", task.Key, "src_w", srcW, "src_h", srcH,
-			"target_w", task.TargetW, "target_h", task.TargetH,
 		)
 		return
 	}
 
-	// 第四步：执行缩放（使用 Fit 等比例适应目标边界框，Lanczos 高质量重采样）
-	dstImg := imaging.Fit(srcImg, dstW, dstH, imaging.Lanczos)
-
-	// 第五步：编码缩放后的图片
-	var buf bytes.Buffer
-	outputContentType := task.ContentType // 输出格式默认与输入相同
-
-	switch task.ContentType {
-	case "image/jpeg":
-		// JPEG 编码，使用指定的质量参数
-		if err := jpeg.Encode(&buf, dstImg, &jpeg.Options{Quality: task.Quality}); err != nil {
-			p.logger.Error("auto-resize: jpeg encode failed", "error", err, "key", task.Key)
-			return
-		}
-	case "image/png":
-		// PNG 编码（无损格式）
-		if err := png.Encode(&buf, dstImg); err != nil {
-			p.logger.Error("auto-resize: png encode failed", "error", err, "key", task.Key)
-			return
-		}
-	case "image/gif":
-		// GIF 缩放后转为 PNG 输出以保持质量
-		if err := png.Encode(&buf, dstImg); err != nil {
-			p.logger.Error("auto-resize: gif->png encode failed", "error", err, "key", task.Key)
-			return
-		}
-		outputContentType = "image/png"
-	default:
-		p.logger.Error("auto-resize: unsupported content type", "type", task.ContentType, "key", task.Key)
+	// 第四步：编码并压缩到目标文件大小
+	// 策略：先用初始质量编码，如果超过目标文件大小，用二分法降低质量
+	resizedData, outputContentType, finalQuality, err := encodeToTargetSize(
+		workImg, task.ContentType, task.Quality, task.TargetSize,
+	)
+	if err != nil {
+		p.logger.Error("auto-resize: encode failed", "error", err, "key", task.Key)
 		return
 	}
 
-	resizedData := buf.Bytes()
 	resizedSize := int64(len(resizedData))
 
-	// 第六步：如果缩放后反而更大（PNG 等无损格式可能），则放弃替换
+	// 第五步：如果压缩后反而更大（PNG 等无损格式可能），则放弃替换
 	if resizedSize >= task.Size {
 		p.logger.Info("auto-resize: resized image larger than original, skipping",
 			"key", task.Key,
@@ -224,11 +228,11 @@ func (p *ImageProcessor) processTask(workerID int, task AutoResizeTask) {
 		return
 	}
 
-	// 第七步：计算新文件的 ETag
+	// 第六步：计算新文件的 ETag
 	hash := md5.Sum(resizedData)
 	newETag := hex.EncodeToString(hash[:])
 
-	// 第八步：替换存储中的文件
+	// 第七步：替换存储中的文件
 	reader = io.NopCloser(bytes.NewReader(resizedData))
 	newSize, _, err := p.storage.PutObject(task.BucketName, task.Key, reader)
 	if err != nil {
@@ -236,7 +240,7 @@ func (p *ImageProcessor) processTask(workerID int, task AutoResizeTask) {
 		return
 	}
 
-	// 第九步：更新数据库中的元数据
+	// 第八步：更新数据库中的元数据
 	bucket, err := p.db.GetBucket(task.BucketName)
 	if err != nil || bucket == nil {
 		p.logger.Error("auto-resize: failed to get bucket", "error", err, "bucket", task.BucketName)
@@ -259,7 +263,7 @@ func (p *ImageProcessor) processTask(workerID int, task AutoResizeTask) {
 		Key:          task.Key,
 		Size:         newSize,
 		ETag:         newETag,
-		ContentType:  outputContentType, // 更新为实际输出类型（GIF 可能变为 PNG）
+		ContentType:  outputContentType, // 更新为实际输出类型
 		LastModified: time.Now().UTC(),
 		Metadata:     metadataStr,
 		IsLatest:     true,
@@ -276,8 +280,9 @@ func (p *ImageProcessor) processTask(workerID int, task AutoResizeTask) {
 	p.logger.Info("auto-resize completed",
 		"bucket", task.BucketName,
 		"key", task.Key,
-		"src_size", fmt.Sprintf("%dx%d", srcW, srcH),
-		"dst_size", fmt.Sprintf("%dx%d", dstW, dstH),
+		"src_dims", fmt.Sprintf("%dx%d", srcW, srcH),
+		"dst_dims", fmt.Sprintf("%dx%d", dstW, dstH),
+		"quality", finalQuality,
 		"original_bytes", task.Size,
 		"resized_bytes", newSize,
 		"saved", fmt.Sprintf("%d (%.1f%%)", savedBytes, savedPercent),
@@ -285,55 +290,173 @@ func (p *ImageProcessor) processTask(workerID int, task AutoResizeTask) {
 	)
 }
 
-// calcAutoResizeSize 计算自动缩放的目标尺寸
+// calcAutoResizeDims 计算自动缩放的目标尺寸
 // 核心原则：只缩小不放大，按最大边等比例缩放
-// 返回值：目标宽度、目标高度、是否需要缩放
+// 返回值：是否需要缩放、目标宽度（传给 imaging.Fit）、目标高度（传给 imaging.Fit）
 //
 // 示例（targetW=1920, targetH=0）：
-//   - 4000x3000 → 1920x1440（宽度超限，按宽度缩放）
-//   - 750x1920  → 不缩放（宽度 750<1920，高度 1920 虽大但 targetH=0 不限制高度）
-//   - 3000x5000 → 1920x3200（宽度超限，按宽度等比例缩放）
+//   - 4000x3000 → true, 1920, 0（宽度超限，按宽度缩放）
+//   - 750x1920  → false, 0, 0（宽度 750<1920，不缩放）
+//   - 3000x5000 → true, 1920, 0（宽度超限，按宽度缩放）
 //
 // 示例（targetW=1920, targetH=1920）：
-//   - 4000x3000 → 1920x1440（宽度超限，Fit 到 1920x1920 边界框）
-//   - 750x1920  → 不缩放（宽高都在边界框内）
-//   - 3000x5000 → 1152x1920（高度超限，Fit 到 1920x1920 边界框）
-func calcAutoResizeSize(srcW, srcH, targetW, targetH int) (int, int, bool) {
+//   - 4000x3000 → true, 1920, 1920（宽度超限，Fit 到边界框）
+//   - 750x1920  → false, 0, 0（宽高都在边界框内）
+//   - 3000x5000 → true, 1920, 1920（高度超限，Fit 到边界框）
+func calcAutoResizeDims(srcW, srcH, targetW, targetH int) (bool, int, int) {
 	// 如果目标尺寸都为 0，不需要缩放
 	if targetW == 0 && targetH == 0 {
-		return srcW, srcH, false
+		return false, 0, 0
 	}
 
 	// 只指定宽度（targetH=0）：只检查宽度是否超限
 	if targetW > 0 && targetH == 0 {
 		if srcW <= targetW {
 			// 原图宽度已小于等于目标宽度，不需要缩放（不放大）
-			return srcW, srcH, false
+			return false, 0, 0
 		}
 		// 宽度超限，按目标宽度等比例缩小
-		return targetW, 0, true // imaging.Fit 会自动计算高度
+		return true, targetW, 0 // imaging.Fit 会自动计算高度
 	}
 
 	// 只指定高度（targetW=0）：只检查高度是否超限
 	if targetW == 0 && targetH > 0 {
 		if srcH <= targetH {
 			// 原图高度已小于等于目标高度，不需要缩放（不放大）
-			return srcW, srcH, false
+			return false, 0, 0
 		}
 		// 高度超限，按目标高度等比例缩小
-		return 0, targetH, true // imaging.Fit 会自动计算宽度
+		return true, 0, targetH // imaging.Fit 会自动计算宽度
 	}
 
 	// 同时指定宽高：使用 Fit 模式，等比例适应目标边界框
-	// imaging.Fit 本身就是只缩小不放大的（如果原图在边界框内则返回原图尺寸）
-	// 但我们提前判断避免不必要的解码后处理
 	if srcW <= targetW && srcH <= targetH {
 		// 原图宽高都在边界框内，不需要缩放
-		return srcW, srcH, false
+		return false, 0, 0
 	}
 
 	// 至少有一边超限，需要缩放
-	return targetW, targetH, true
+	return true, targetW, targetH
+}
+
+// encodeToTargetSize 编码图片到目标文件大小
+// 策略（主流做法，参考微信/WhatsApp/TinyPNG）：
+//  1. 先用初始质量编码，检查文件大小
+//  2. 如果未超过目标大小，直接返回
+//  3. 如果超过目标大小，用二分法在 [minQuality, maxQuality] 之间搜索最优质量
+//  4. 对于 PNG/GIF 等无损格式，先转为 JPEG 再压缩（无损格式无法调质量）
+//
+// 参数：
+//   - img: 待编码的图片
+//   - contentType: 原始内容类型
+//   - initialQuality: 初始 JPEG 质量（1-100）
+//   - targetSize: 目标文件大小字节数（0=不限制，直接用初始质量编码）
+//
+// 返回：编码后的字节数据、输出内容类型、最终使用的质量、错误
+func encodeToTargetSize(img image.Image, contentType string, initialQuality int, targetSize int64) ([]byte, string, int, error) {
+	// 对于 JPEG 图片，使用二分法质量压缩
+	if contentType == "image/jpeg" {
+		return encodeJpegToTargetSize(img, initialQuality, targetSize)
+	}
+
+	// 对于 PNG/GIF/BMP 等无损格式，转为 JPEG 再压缩
+	// 因为无损格式无法通过降低质量来减小文件大小
+	// 这是主流图片服务的通用做法：统一转为 JPEG 压缩
+	return encodeJpegToTargetSize(img, initialQuality, targetSize)
+}
+
+// encodeJpegToTargetSize 用二分法将图片编码为 JPEG，直到文件大小不超过目标值
+// 这是微信/WhatsApp 等图片压缩的核心算法
+//
+// 算法流程：
+//  1. 先用 initialQuality 编码，如果文件大小 ≤ targetSize，直接返回
+//  2. 否则在 [minQuality, maxQuality] 之间二分搜索
+//  3. 每次取中间质量编码，根据结果大小调整搜索范围
+//  4. 最多迭代 maxIterations 次（默认 10 次，足够精确）
+//  5. 最终取满足目标大小的最高质量
+func encodeJpegToTargetSize(img image.Image, initialQuality int, targetSize int64) ([]byte, string, int, error) {
+	// 限制初始质量在合理范围 [1, 100]
+	if initialQuality < 1 {
+		initialQuality = 1
+	}
+	if initialQuality > 100 {
+		initialQuality = 100
+	}
+
+	// 第一步：用初始质量编码，检查是否已满足目标
+	data, err := encodeJpeg(img, initialQuality)
+	if err != nil {
+		return nil, "", initialQuality, fmt.Errorf("jpeg encode at quality %d: %w", initialQuality, err)
+	}
+
+	// 如果没有目标大小限制，或已满足目标，直接返回
+	if targetSize <= 0 || int64(len(data)) <= targetSize {
+		return data, "image/jpeg", initialQuality, nil
+	}
+
+	// 第二步：二分法搜索最优质量
+	const (
+		minQuality    = 10 // 最低质量下限，低于此值画质严重劣化
+		maxIterations = 10 // 最大迭代次数，10 次足以覆盖 [10, 100] 的质量范围
+	)
+
+	lo := minQuality         // 二分搜索下界（最低质量）
+	hi := initialQuality - 1 // 二分搜索上界（比初始质量低 1，因为初始质量已确认超标）
+	var bestData []byte      // 记录满足条件的最佳编码数据
+	var bestQuality int      // 记录满足条件的最佳质量
+
+	for i := 0; i < maxIterations; i++ {
+		mid := (lo + hi) / 2 // 取中间质量
+		if mid < minQuality {
+			mid = minQuality
+		}
+
+		// 用当前中间质量编码
+		data, err := encodeJpeg(img, mid)
+		if err != nil {
+			// 编码失败，降低质量重试
+			hi = mid - 1
+			continue
+		}
+
+		currentSize := int64(len(data))
+
+		if currentSize <= targetSize {
+			// 当前质量满足目标大小，记录并尝试更高质量
+			bestData = data
+			bestQuality = mid
+			lo = mid + 1 // 尝试更高质量
+		} else {
+			// 当前质量仍然超标，降低质量
+			hi = mid - 1
+		}
+
+		// 搜索范围已收敛，提前退出
+		if lo > hi {
+			break
+		}
+	}
+
+	// 如果二分法没找到满足条件的质量，用最低质量兜底
+	if bestData == nil {
+		data, err := encodeJpeg(img, minQuality)
+		if err != nil {
+			return nil, "", minQuality, fmt.Errorf("jpeg encode at min quality %d: %w", minQuality, err)
+		}
+		bestData = data
+		bestQuality = minQuality
+	}
+
+	return bestData, "image/jpeg", bestQuality, nil
+}
+
+// encodeJpeg 将图片编码为 JPEG 格式
+func encodeJpeg(img image.Image, quality int) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // ShouldAutoResize 判断上传的文件是否需要自动缩放
@@ -403,6 +526,9 @@ func BuildAutoResizeTask(cfg *config.ImageResizeConfig, bucketName, key, content
 		}
 	}
 
+	// 解析目标文件大小（0 表示不限制）
+	targetSize := parseSizeToBytes(cfg.AutoResizeTargetSize)
+
 	return &AutoResizeTask{
 		BucketName:  bucketName,
 		Key:         key,
@@ -411,6 +537,7 @@ func BuildAutoResizeTask(cfg *config.ImageResizeConfig, bucketName, key, content
 		Quality:     cfg.AutoResizeQuality,
 		TargetW:     cfg.AutoResizeTargetW,
 		TargetH:     cfg.AutoResizeTargetH,
+		TargetSize:  targetSize,
 		SubmittedAt: time.Now(),
 	}
 }

@@ -444,22 +444,39 @@ curl http://localhost:9000/my-bucket/photo.jpg?w=400&q=50
 
 ```yaml
 image_resize:
-  auto_resize_enabled: true   # 启用自动缩放
-  auto_resize_min_size: "5MB" # 仅缩放大于 5MB 的图片
-  auto_resize_target_w: 1920  # 目标最大宽度
-  auto_resize_target_h: 0     # 0 = 不限制高度
-  auto_resize_quality: 85     # JPEG 质量
+  auto_resize_enabled: true     # 启用自动缩放
+  auto_resize_min_size: "5MB"   # 仅缩放大于 5MB 的图片
+  auto_resize_target_w: 1920    # 目标最大宽度
+  auto_resize_target_h: 0       # 0 = 不限制高度
+  auto_resize_target_size: "2MB" # 目标文件大小（0=不限制）
+  auto_resize_quality: 85       # JPEG 初始质量（二分法会自动降低）
 ```
 
 **工作流程：**
 1. 通过 S3 API 或 WebDAV 上传文件
 2. 如果文件是图片且超过 `auto_resize_min_size`，加入缩放队列
 3. 后台工作协程（最多 `max_concurrent` 个）异步处理队列
-4. 缩放完成后替换原文件
-5. 如果缩放后反而更大（如 PNG 无损格式），保留原文件
+4. **先按尺寸缩放**（如果宽/高超限），**再按目标文件大小压缩**
+5. 缩放完成后替换原文件
+6. 如果缩放后反而更大（如 PNG 无损格式），保留原文件
+
+**目标文件大小压缩（二分法）：**
+
+当设置了 `auto_resize_target_size`（如 `"2MB"`）时，系统会自动降低 JPEG 质量直到文件大小达标：
+- 先用 `auto_resize_quality`（默认 85）编码，如果文件大小已满足目标则直接返回
+- 如果超标，使用**二分法**在 [10, 85] 之间搜索最优质量（最多 10 次迭代）
+- 最终取满足目标大小的**最高质量**，在文件大小和画质之间取得最佳平衡
+- 这是微信/WhatsApp/TinyPNG 等主流图片压缩服务的通用做法
+- PNG/GIF 等无损格式会自动转为 JPEG 再压缩
+
+**示例：** 900×7715 的长图（3.4MB），`target_w=1920, target_size=2MB`：
+- 宽度 900 < 1920，不需要尺寸缩放
+- 但文件 3.4MB > 2MB，触发二分法质量压缩
+- 系统自动从质量 85 开始降低，找到满足 ≤2MB 的最高质量
 
 **核心行为：**
 - **只缩小不放大** — 750×1920 的图片在 `target_w=1920` 时不会被缩放（宽度 750 已 ≤ 1920）
+- **目标文件大小优先** — 即使尺寸不超限，文件大小超标也会压缩
 - **非阻塞** — 上传立即返回，缩放在后台进行
 - **队列溢出** — 缩放队列满时丢弃任务（上传永远不会被阻塞）
 - **Content-Type 检测** — WebDAV 上传的 `application/octet-stream` 会根据文件扩展名自动推断
@@ -558,11 +575,12 @@ image_resize:
   max_height: 4096            # 输出图片最大高度（像素）
   max_upscale: 2              # 最大放大倍数（相对原图）
   max_concurrent: 4           # 最大并发缩放数
-  auto_resize_enabled: false  # 上传自动缩放（设为 true 启用）
-  auto_resize_min_size: "5MB" # 触发自动缩放的最小文件大小（支持 KB/MB/GB）
-  auto_resize_target_w: 1920  # 目标最大宽度（像素），只缩小不放大
-  auto_resize_target_h: 0     # 目标最大高度（0=不限制高度，设为 1920 则宽高都不超过 1920）
-  auto_resize_quality: 85     # JPEG 输出质量（1-100）
+  auto_resize_enabled: false    # 上传自动缩放（设为 true 启用）
+  auto_resize_min_size: "5MB"   # 触发自动缩放的最小文件大小（支持 KB/MB/GB）
+  auto_resize_target_w: 1920    # 目标最大宽度（像素），只缩小不放大
+  auto_resize_target_h: 0       # 目标最大高度（0=不限制高度，设为 1920 则宽高都不超过 1920）
+  auto_resize_target_size: "0"  # 目标文件大小（支持 KB/MB/GB，0=不限制）
+  auto_resize_quality: 85       # JPEG 初始质量（1-100），二分法会自动降低
 ```
 
 ## 安装
